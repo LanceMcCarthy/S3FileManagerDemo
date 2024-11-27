@@ -22,6 +22,10 @@
     <None Remove="Templates\**" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Folder Include="wwwroot\shared\filemanager\" />
+  </ItemGroup>
+
   <ProjectExtensions><VisualStudio><UserProperties UseCdnSupport="True" /></VisualStudio></ProjectExtensions>
   
 </Project>
