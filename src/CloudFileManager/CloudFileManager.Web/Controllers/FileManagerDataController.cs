@@ -1,7 +1,11 @@
 ﻿using System.Net.Http.Headers;
+using System.Security.Cryptography;
+using System.Text;
 using CloudFileManager.Web.Helpers;
+using CloudFileManager.Web.Models;
 using Kendo.Mvc.UI;
 using Microsoft.AspNetCore.Mvc;
+using Newtonsoft.Json;
 
 namespace CloudFileManager.Web.Controllers;
 
@@ -17,15 +21,156 @@ public class FileManagerDataController : Controller
     private const string SessionDirectory = "Dir";
     private const string DefaultTarget = "Folders";
 
+    // AWS stuff
+    private S3Config s3Config;
+    private string awsPolicy;
+    private string policySignature;
+
+
     public string ContentPath => Path.Combine(HostingEnvironment.WebRootPath, contentFolderRoot, "filemanager");
 
-    public FileManagerDataController(IWebHostEnvironment hostingEnvironment)
+    public FileManagerDataController(IWebHostEnvironment hostingEnvironment, IConfiguration config)
     {
         HostingEnvironment = hostingEnvironment;
         directoryBrowser = new FileContentBrowser();
+
+        s3Config = new S3Config
+        {
+            Uuid = Guid.NewGuid(),
+            ExpirationTime = TimeSpan.FromHours(1),
+            AccessKey = config["AWS_ACCESS_KEY"],
+            SecretAccessKey = config["AWS_SECRET_ACCESS_KEY"],
+
+            // Bucket name and key prefix (folder)
+            Bucket = "bkt-for-deployment/Aws/",
+            BucketUrl = "https://bkt-for-deployment.s3.us-east-1.amazonaws.com/",
+            KeyPrefix = "Aws/",
+            Acl = "private",
+
+            // This might need to be adjusted
+            ContentTypePrefix = "application/octet-stream",
+
+            SuccessUrl = "http://localhost:18223/home/success"
+        };
+
+        awsPolicy = Policy(s3Config);
+
+        policySignature = Sign(awsPolicy, s3Config.SecretAccessKey);
+    }
+
+    // TODO
+    // This is for creating a new folder in the s3 bucket
+    public virtual ActionResult Create(string target, FileManagerEntry entry)
+    {
+        FileManagerEntry newEntry;
+
+        if (!Authorize(NormalizePath(target)))
+        {
+            throw new Exception("Forbidden");
+        }
+
+        newEntry = String.IsNullOrEmpty(entry.Path)
+            ? CreateNewFolder(target, entry)
+            : CopyEntry(target, entry);
+
+        UpdateSessionDir();
+
+        return Json(VirtualizePath(newEntry));
+    }
+
+    // Return a list of files and folders at the desired path
+    public virtual JsonResult Read(string target)
+    {
+        var path = NormalizePath(target);
+        ICollection<FileManagerEntry> sessionDir = HttpContext.Session.GetObjectFromJson<ICollection<FileManagerEntry>>(SessionDirectory);
+
+        if (Authorize(path))
+        {
+            try
+            {
+                if (sessionDir == null)
+                {
+                    sessionDir = directoryBrowser.GetAll(ContentPath);
+
+                    HttpContext.Session.SetObjectAsJson(SessionDirectory, sessionDir);
+                }
+
+                var result = sessionDir.Where(d => TargetMatch(target, d.Path)).Select(VirtualizePath).ToList();
+
+                return Json(result.ToArray());
+            }
+            catch (DirectoryNotFoundException)
+            {
+                throw new Exception("File Not Found");
+            }
+        }
+
+        throw new Exception("Forbidden");
+    }
+
+    // rename a folder path or a filename
+    public virtual ActionResult Update(string target, FileManagerEntry entry)
+    {
+        FileManagerEntry newEntry;
+        var path = Path.Combine(ContentPath, NormalizePath(entry.Path));
+
+        if (!Authorize(NormalizePath(entry.Path)) && !Authorize(NormalizePath(target)))
+        {
+            throw new Exception("Forbidden");
+        }
+
+        newEntry = RenameEntry(entry);
+
+        return Json(VirtualizePath(newEntry));
+    }
+
+    // Deletes item at the desired path
+    public virtual ActionResult Destroy(FileManagerEntry entry)
+    {
+        ICollection<FileManagerEntry> sessionDir = HttpContext.Session.GetObjectFromJson<ICollection<FileManagerEntry>>(SessionDirectory);
+        var path = Path.Combine(ContentPath, NormalizePath(entry.Path));
+        var currentEntry = sessionDir.FirstOrDefault(x => x.Path == path);
+
+        if (currentEntry != null)
+        {
+            sessionDir.Remove(currentEntry);
+            HttpContext.Session.SetObjectAsJson(SessionDirectory, sessionDir);
+            return Json(new object[0]);
+        }
+
+        throw new Exception("File Not Found");
     }
 
     public string Filter => "*.*";
+
+    // Uploads actual file data
+    [AcceptVerbs("POST")]
+    public virtual ActionResult Upload(string path, IFormFile file)
+    {
+        ICollection<FileManagerEntry> sessionDir = HttpContext.Session.GetObjectFromJson<ICollection<FileManagerEntry>>(SessionDirectory);
+        FileManagerEntry newEntry = new FileManagerEntry();
+        path = NormalizePath(path);
+        var fileName = Path.GetFileNameWithoutExtension(file.FileName);
+
+        if (AuthorizeUpload(path, file))
+        {
+            newEntry.Path = Path.Combine(ContentPath, path, file.FileName);
+            newEntry.Name = fileName;
+            newEntry.Modified = DateTime.Now;
+            newEntry.ModifiedUtc = DateTime.Now;
+            newEntry.Created = DateTime.Now;
+            newEntry.CreatedUtc = DateTime.UtcNow;
+            newEntry.Size = file.Length;
+            newEntry.Extension = Path.GetExtension(file.FileName);
+            sessionDir.Add(newEntry);
+
+            HttpContext.Session.SetObjectAsJson(SessionDirectory, sessionDir);
+
+            return Json(VirtualizePath(newEntry));
+        }
+
+        throw new Exception("Forbidden");
+    }
 
     private string CreateUserFolder()
     {
@@ -101,24 +246,6 @@ public class FileManagerDataController : Controller
             Path = entry.Path.Replace(ContentPath + Path.DirectorySeparatorChar, "").Replace(@"\", "/"),
             Size = entry.Size
         };
-    } 
-
-    public virtual ActionResult Create(string target, FileManagerEntry entry)
-    {
-        FileManagerEntry newEntry;
-
-        if (!Authorize(NormalizePath(target)))
-        {
-            throw new Exception("Forbidden");
-        }
-
-        newEntry = String.IsNullOrEmpty(entry.Path) 
-            ? CreateNewFolder(target, entry) 
-            : CopyEntry(target, entry);
-
-        UpdateSessionDir();
-
-        return Json(VirtualizePath(newEntry));
     }
 
     protected virtual FileManagerEntry CopyEntry(string target, FileManagerEntry entry)
@@ -129,8 +256,8 @@ public class FileManagerDataController : Controller
 
         FileManagerEntry newEntry;
 
-        newEntry = entry.IsDirectory 
-            ? CopyDirectory(new DirectoryInfo(physicalPath), Directory.CreateDirectory(physicalTarget)) 
+        newEntry = entry.IsDirectory
+            ? CopyDirectory(new DirectoryInfo(physicalPath), Directory.CreateDirectory(physicalTarget))
             : CopyFile(physicalPath, physicalTarget);
 
         return newEntry;
@@ -223,23 +350,6 @@ public class FileManagerDataController : Controller
         return physicalTarget;
     }
 
-    public virtual ActionResult Destroy(FileManagerEntry entry)
-    {
-        ICollection<FileManagerEntry> sessionDir = HttpContext.Session.GetObjectFromJson<ICollection<FileManagerEntry>>(SessionDirectory);
-        var path = Path.Combine(ContentPath,NormalizePath(entry.Path));
-        var currentEntry = sessionDir.FirstOrDefault(x => x.Path == path);
-
-        if (currentEntry != null)
-        {
-            sessionDir.Remove(currentEntry);
-            HttpContext.Session.SetObjectAsJson(SessionDirectory, sessionDir);
-            return Json(new object[0]);
-        }
-
-
-        throw new Exception("File Not Found");
-    }
-
     protected virtual void DeleteFile(string path)
     {
         if (!Authorize(path))
@@ -268,50 +378,6 @@ public class FileManagerDataController : Controller
         {
             Directory.Delete(physicalPath, true);
         }
-    }
-
-    public virtual JsonResult Read(string target)
-    {
-        var path = NormalizePath(target);
-        ICollection<FileManagerEntry> sessionDir = HttpContext.Session.GetObjectFromJson<ICollection<FileManagerEntry>>(SessionDirectory);
-
-        if (Authorize(path))
-        {
-            try
-            {
-                if (sessionDir == null)
-                {
-                    sessionDir = directoryBrowser.GetAll(ContentPath);
-
-                    HttpContext.Session.SetObjectAsJson(SessionDirectory, sessionDir);
-                }
-
-                var result = sessionDir.Where(d => TargetMatch(target, d.Path)).Select(VirtualizePath).ToList();
-
-                return Json(result.ToArray());
-            }
-            catch (DirectoryNotFoundException)
-            {
-                throw new Exception("File Not Found");
-            }
-        }
-
-        throw new Exception("Forbidden");
-    }
-
-    public virtual ActionResult Update(string target, FileManagerEntry entry)
-    {
-        FileManagerEntry newEntry;
-        var path = Path.Combine(ContentPath, NormalizePath(entry.Path));
-
-        if (!Authorize(NormalizePath(entry.Path)) && !Authorize(NormalizePath(target)))
-        {
-            throw new Exception("Forbidden");
-        }
-
-        newEntry = RenameEntry(entry);
-
-        return Json(VirtualizePath(newEntry));
     }
 
     protected virtual FileManagerEntry RenameEntry(FileManagerEntry entry)
@@ -354,33 +420,6 @@ public class FileManagerDataController : Controller
         return allowedExtensions.Any(e => e.Equals("*.*") || e.EndsWith(extension, StringComparison.OrdinalIgnoreCase));
     }
 
-    [AcceptVerbs("POST")]
-    public virtual ActionResult Upload(string path, IFormFile file)
-    {
-        ICollection<FileManagerEntry> sessionDir = HttpContext.Session.GetObjectFromJson<ICollection<FileManagerEntry>>(SessionDirectory);
-        FileManagerEntry newEntry = new FileManagerEntry();
-        path = NormalizePath(path);
-        var fileName = Path.GetFileNameWithoutExtension(file.FileName);
-
-        if (AuthorizeUpload(path, file))
-        {
-            newEntry.Path = Path.Combine(ContentPath, path, file.FileName);
-            newEntry.Name = fileName;
-            newEntry.Modified = DateTime.Now;
-            newEntry.ModifiedUtc = DateTime.Now;
-            newEntry.Created = DateTime.Now;
-            newEntry.CreatedUtc = DateTime.UtcNow;
-            newEntry.Size = file.Length;
-            newEntry.Extension = Path.GetExtension(file.FileName);
-            sessionDir.Add(newEntry);
-
-            HttpContext.Session.SetObjectAsJson(SessionDirectory, sessionDir);
-
-            return Json(VirtualizePath(newEntry));
-        }
-
-        throw new Exception("Forbidden");
-    }
 
     protected virtual void SaveFile(IFormFile file, string pathToSave)
     {
@@ -450,4 +489,34 @@ public class FileManagerDataController : Controller
         }
         return paths.Aggregate(path, (acc, p) => Path.Combine(acc, p));
     }
+
+
+
+    // START DO NOT REMOVE - For AWS AUTHENTICATION
+
+    private string Policy(S3Config config)
+    {
+        var policyJson = JsonConvert.SerializeObject(new
+        {
+            expiration = DateTime.UtcNow.Add(config.ExpirationTime).ToString("yyyy-MM-ddTHH:mm:ssZ"),
+            conditions = new object[] {
+                new { bucket = config.Bucket },
+                new [] { "starts-with", "$key", config.KeyPrefix },
+                new { acl = config.Acl },
+                new [] { "starts-with", "$success_action_redirect", "" },
+                new [] { "starts-with", "$Content-Type", config.ContentTypePrefix },
+                new Dictionary<string, string>  {{ "x-amz-meta-uuid", config.Uuid.ToString() }} 
+            }
+        });
+
+        return Convert.ToBase64String(Encoding.UTF8.GetBytes(policyJson));
+    }
+
+    private static string Sign(string text, string key)
+    {
+        var signer = new HMACSHA1(Encoding.UTF8.GetBytes(key));
+        return Convert.ToBase64String(signer.ComputeHash(Encoding.UTF8.GetBytes(text)));
+    }
+
+    // END DO NOT REMOVE - For AWS AUTHENTICATION
 }

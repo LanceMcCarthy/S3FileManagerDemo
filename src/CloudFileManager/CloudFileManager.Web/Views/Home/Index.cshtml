@@ -6,21 +6,21 @@
 @(Html.Kendo().FileManager().Name("filemanager")
     .DataSource(ds =>
     {
-        ds.Read(operation => operation
-            .Type(HttpVerbs.Post)
-            .Action("Read", "FileManagerData")
-        );
-        ds.Destroy(operation => operation
-            .Type(HttpVerbs.Post)
-            .Action("Destroy", "FileManagerData")
-        );
         ds.Create(operation => operation
             .Type(HttpVerbs.Post)
             .Action("Create", "FileManagerData")
         );
+        ds.Read(operation => operation
+            .Type(HttpVerbs.Post)
+            .Action("Read", "FileManagerData")
+        );
         ds.Update(operation => operation
             .Type(HttpVerbs.Post)
             .Action("Update", "FileManagerData")
+        );
+        ds.Destroy(operation => operation
+            .Type(HttpVerbs.Post)
+            .Action("Destroy", "FileManagerData")
         );
     })
     .UploadUrl("Upload", "FileManagerData")
