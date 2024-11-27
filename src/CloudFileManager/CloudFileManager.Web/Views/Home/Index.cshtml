@@ -1,0 +1,54 @@
+﻿@{
+    ViewData["Title"] = "Home Page";
+}
+
+
+@(Html.Kendo().FileManager().Name("filemanager")
+    .DataSource(ds =>
+    {
+        ds.Read(operation => operation
+            .Type(HttpVerbs.Post)
+            .Action("Read", "FileManagerData")
+        );
+        ds.Destroy(operation => operation
+            .Type(HttpVerbs.Post)
+            .Action("Destroy", "FileManagerData")
+        );
+        ds.Create(operation => operation
+            .Type(HttpVerbs.Post)
+            .Action("Create", "FileManagerData")
+        );
+        ds.Update(operation => operation
+            .Type(HttpVerbs.Post)
+            .Action("Update", "FileManagerData")
+        );
+    })
+    .UploadUrl("Upload", "FileManagerData")
+    .Toolbar(tb => tb.Items(items =>
+    {
+        items.Add("createFolder");
+        items.Add("upload");
+        items.Add("sortDirection");
+        items.Add("sortField");
+        items.Add("changeView");
+        items.Add("spacer");
+        items.Add("details");
+        items.Add("search");
+    }))
+    .ContextMenu(context => context.Items(items =>
+    {
+        items.Add("rename");
+        items.Add("delete");
+    }))
+)
+
+<script>
+    $(document).ready( function () {
+        var filemanager = $("#filemanager").getKendoFileManager();
+
+        filemanager.executeCommand({ command: "TogglePaneCommand", options: { type: "preview" } });
+        $("#details-toggle").getKendoSwitch().toggle();
+    })
+</script>
+
+
