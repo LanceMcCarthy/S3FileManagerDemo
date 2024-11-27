@@ -1,64 +1,38 @@
-﻿using System.Net.Http.Headers;
-using System.Security.Cryptography;
-using System.Text;
+﻿using Amazon;
+using Amazon.S3;
 using CloudFileManager.Web.Helpers;
-using CloudFileManager.Web.Models;
 using Kendo.Mvc.UI;
 using Microsoft.AspNetCore.Mvc;
-using Newtonsoft.Json;
+using Microsoft.Net.Http.Headers;
 
 namespace CloudFileManager.Web.Controllers;
 
 public class FileManagerDataController : Controller
 {
+    private IAmazonS3 client;
+    private const string BUCKET_NAME = "bkt-for-deployment";
+    private const string KEY_NAME = "aws";
+
     protected readonly IWebHostEnvironment HostingEnvironment;
     private readonly FileContentBrowser directoryBrowser;
-    //
-    // GET: /FileManager/
     private const string contentFolderRoot = "shared";
     private const string prettyName = "Folders";
     private static readonly string[] foldersToCopy = new[] { "shared/filemanager" };
     private const string SessionDirectory = "Dir";
     private const string DefaultTarget = "Folders";
 
-    // AWS stuff
-    private S3Config s3Config;
-    private string awsPolicy;
-    private string policySignature;
-
-
     public string ContentPath => Path.Combine(HostingEnvironment.WebRootPath, contentFolderRoot, "filemanager");
 
-    public FileManagerDataController(IWebHostEnvironment hostingEnvironment, IConfiguration config)
+    public FileManagerDataController(IWebHostEnvironment hostingEnvironment)
     {
         HostingEnvironment = hostingEnvironment;
         directoryBrowser = new FileContentBrowser();
 
-        s3Config = new S3Config
-        {
-            Uuid = Guid.NewGuid(),
-            ExpirationTime = TimeSpan.FromHours(1),
-            AccessKey = config["AWS_ACCESS_KEY"],
-            SecretAccessKey = config["AWS_SECRET_ACCESS_KEY"],
-
-            // Bucket name and key prefix (folder)
-            Bucket = "bkt-for-deployment/Aws/",
-            BucketUrl = "https://bkt-for-deployment.s3.us-east-1.amazonaws.com/",
-            KeyPrefix = "Aws/",
-            Acl = "private",
-
-            // This might need to be adjusted
-            ContentTypePrefix = "application/octet-stream",
-
-            SuccessUrl = "http://localhost:18223/home/success"
-        };
-
-        awsPolicy = Policy(s3Config);
-
-        policySignature = Sign(awsPolicy, s3Config.SecretAccessKey);
+        client = new AmazonS3Client(RegionEndpoint.USEast1);
     }
 
-    // TODO
+    #region Direct Controller Actions
+
     // This is for creating a new folder in the s3 bucket
     public virtual ActionResult Create(string target, FileManagerEntry entry)
     {
@@ -141,18 +115,25 @@ public class FileManagerDataController : Controller
         throw new Exception("File Not Found");
     }
 
-    public string Filter => "*.*";
-
     // Uploads actual file data
     [AcceptVerbs("POST")]
-    public virtual ActionResult Upload(string path, IFormFile file)
+    public virtual async Task<ActionResult> Upload(string path, IFormFile file)
     {
         ICollection<FileManagerEntry> sessionDir = HttpContext.Session.GetObjectFromJson<ICollection<FileManagerEntry>>(SessionDirectory);
         FileManagerEntry newEntry = new FileManagerEntry();
         path = NormalizePath(path);
         var fileName = Path.GetFileNameWithoutExtension(file.FileName);
 
-        if (AuthorizeUpload(path, file))
+        // Saving a temporary file (because AWS SDK doesnt support stream)
+        var tempFilePath = Path.Combine(Path.GetTempPath(), file.FileName);
+        await using var fileStream = System.IO.File.OpenWrite(tempFilePath);
+        await file.CopyToAsync(fileStream);
+        fileStream.Close();
+
+        // Take the temp file and upload it to the s3 bucket
+        var success = await S3BucketExtensions.UploadFileAsync(client, BUCKET_NAME, KEY_NAME, tempFilePath);
+
+        if (success)
         {
             newEntry.Path = Path.Combine(ContentPath, path, file.FileName);
             newEntry.Name = fileName;
@@ -164,13 +145,39 @@ public class FileManagerDataController : Controller
             newEntry.Extension = Path.GetExtension(file.FileName);
             sessionDir.Add(newEntry);
 
-            HttpContext.Session.SetObjectAsJson(SessionDirectory, sessionDir);
-
+            // ? dont know what we should return to the FileManager in this case.
             return Json(VirtualizePath(newEntry));
         }
+        else
+        {
+            throw new Exception("Forbidden");
+        }
+        
+        //if (AuthorizeUpload(path, file))
+        //{
+        //    newEntry.Path = Path.Combine(ContentPath, path, file.FileName);
+        //    newEntry.Name = fileName;
+        //    newEntry.Modified = DateTime.Now;
+        //    newEntry.ModifiedUtc = DateTime.Now;
+        //    newEntry.Created = DateTime.Now;
+        //    newEntry.CreatedUtc = DateTime.UtcNow;
+        //    newEntry.Size = file.Length;
+        //    newEntry.Extension = Path.GetExtension(file.FileName);
+        //    sessionDir.Add(newEntry);
 
-        throw new Exception("Forbidden");
+        //    HttpContext.Session.SetObjectAsJson(SessionDirectory, sessionDir);
+
+        //    return Json(VirtualizePath(newEntry));
+        //}
+
+        //throw new Exception("Forbidden");
     }
+
+    #endregion
+    
+    #region Original code that uses the web server's file system
+
+    public string Filter => "*.*";
 
     private string CreateUserFolder()
     {
@@ -489,34 +496,5 @@ public class FileManagerDataController : Controller
         }
         return paths.Aggregate(path, (acc, p) => Path.Combine(acc, p));
     }
-
-
-
-    // START DO NOT REMOVE - For AWS AUTHENTICATION
-
-    private string Policy(S3Config config)
-    {
-        var policyJson = JsonConvert.SerializeObject(new
-        {
-            expiration = DateTime.UtcNow.Add(config.ExpirationTime).ToString("yyyy-MM-ddTHH:mm:ssZ"),
-            conditions = new object[] {
-                new { bucket = config.Bucket },
-                new [] { "starts-with", "$key", config.KeyPrefix },
-                new { acl = config.Acl },
-                new [] { "starts-with", "$success_action_redirect", "" },
-                new [] { "starts-with", "$Content-Type", config.ContentTypePrefix },
-                new Dictionary<string, string>  {{ "x-amz-meta-uuid", config.Uuid.ToString() }} 
-            }
-        });
-
-        return Convert.ToBase64String(Encoding.UTF8.GetBytes(policyJson));
-    }
-
-    private static string Sign(string text, string key)
-    {
-        var signer = new HMACSHA1(Encoding.UTF8.GetBytes(key));
-        return Convert.ToBase64String(signer.ComputeHash(Encoding.UTF8.GetBytes(text)));
-    }
-
-    // END DO NOT REMOVE - For AWS AUTHENTICATION
+    #endregion
 }
