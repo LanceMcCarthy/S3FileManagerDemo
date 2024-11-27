@@ -2,7 +2,6 @@
     ViewData["Title"] = "Home Page";
 }
 
-
 @(Html.Kendo().FileManager().Name("filemanager")
     .DataSource(ds =>
     {
@@ -49,26 +48,6 @@
         filemanager.executeCommand({ command: "TogglePaneCommand", options: { type: "preview" } });
         $("#details-toggle").getKendoSwitch().toggle();
     })
-
-    function onUpload(e) {
-        var redirect = "";
-        if (typeof FormData === "undefined") {
-            // Redirect to an empty page is required for IE < 10
-            redirect = "@ViewBag.S3Config.SuccessUrl";
-        }
-        var file = e.files[0];
-        var type = mimeType(file.extension);
-        e.data = {
-            "key": "@ViewBag.S3Config.KeyPrefix" + file.name,
-            "acl": "@ViewBag.S3Config.Acl",
-            "Content-Type": type,
-            "x-amz-meta-uuid": "@ViewBag.S3Config.Uuid",
-            "AWSAccessKeyId": "@ViewBag.S3Config.AccessKey",
-            "Policy": "@ViewBag.Policy",
-            "Signature": "@ViewBag.PolicySignature",
-            "success_action_redirect": redirect
-        };
-    }
 </script>
 
 
