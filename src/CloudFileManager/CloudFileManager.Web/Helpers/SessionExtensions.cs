@@ -1,6 +1,6 @@
 ﻿using Newtonsoft.Json;
 
-namespace CloudFileManager.Web.Controllers;
+namespace CloudFileManager.Web.Helpers;
 
 public static class SessionExtensions
 {
