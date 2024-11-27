@@ -25,29 +25,30 @@ public class S3BucketExtensions
         }
     }
 
-    public static async Task<bool> UploadFileAsync(
-        IAmazonS3 client,
-        string bucketName,
-        string objectName,
-        string filePath)
-    {
-        var request = new PutObjectRequest
-        {
-            BucketName = bucketName,
-            Key = objectName,
-            FilePath = filePath
-        };
+    // Moved to controller
+    //public static async Task<bool> UploadFileAsync(
+    //    IAmazonS3 client,
+    //    string bucketName,
+    //    string objectName,
+    //    string filePath)
+    //{
+    //    var request = new PutObjectRequest
+    //    {
+    //        BucketName = bucketName,
+    //        Key = objectName,
+    //        FilePath = filePath
+    //    };
 
-        var response = await client.PutObjectAsync(request);
+    //    var response = await client.PutObjectAsync(request);
 
-        if (response.HttpStatusCode == System.Net.HttpStatusCode.OK)
-        {
-            Console.WriteLine($"Successfully uploaded {objectName} to {bucketName}.");
-            return true;
-        }
+    //    if (response.HttpStatusCode == System.Net.HttpStatusCode.OK)
+    //    {
+    //        Console.WriteLine($"Successfully uploaded {objectName} to {bucketName}.");
+    //        return true;
+    //    }
 
-        return false;
-    }
+    //    return false;
+    //}
 
     public static async Task<bool> CopyObjectInBucketAsync(
         IAmazonS3 client,
@@ -74,43 +75,44 @@ public class S3BucketExtensions
         }
     }
 
-    public static async Task<bool> ListBucketContentsAsync(IAmazonS3 client, string bucketName)
-    {
-        try
-        {
-            var request = new ListObjectsV2Request
-            {
-                BucketName = bucketName,
-                MaxKeys = 5,
-            };
+    // Momved to controller
+    //public static async Task<bool> ListBucketContentsAsync(IAmazonS3 client, string bucketName)
+    //{
+    //    try
+    //    {
+    //        var request = new ListObjectsV2Request
+    //        {
+    //            BucketName = bucketName,
+    //            MaxKeys = 5,
+    //        };
 
-            Console.WriteLine("--------------------------------------");
-            Console.WriteLine($"Listing the contents of {bucketName}:");
-            Console.WriteLine("--------------------------------------");
+    //        Console.WriteLine("--------------------------------------");
+    //        Console.WriteLine($"Listing the contents of {bucketName}:");
+    //        Console.WriteLine("--------------------------------------");
 
-            ListObjectsV2Response response;
+    //        ListObjectsV2Response response;
 
-            do
-            {
-                response = await client.ListObjectsV2Async(request);
+    //        do
+    //        {
+    //            response = await client.ListObjectsV2Async(request);
 
-                response.S3Objects
-                    .ForEach(obj => Console.WriteLine($"{obj.Key,-35}{obj.LastModified.ToShortDateString(),10}{obj.Size,10}"));
+    //            response.S3Objects
+    //                .ForEach(obj => Console.WriteLine($"{obj.Key,-35}{obj.LastModified.ToShortDateString(),10}{obj.Size,10}"));
 
-                // If the response is truncated, set the request ContinuationToken
-                // from the NextContinuationToken property of the response.
-                request.ContinuationToken = response.NextContinuationToken;
-            }
-            while (response.IsTruncated);
+    //            // If the response is truncated, set the request ContinuationToken
+    //            // from the NextContinuationToken property of the response.
+    //            request.ContinuationToken = response.NextContinuationToken;
+    //        }
+    //        while (response.IsTruncated);
 
-            return true;
-        }
-        catch (AmazonS3Exception ex)
-        {
-            Console.WriteLine($"Error encountered on server. Message:'{ex.Message}' getting list of objects.");
-            return false;
-        }
-    }
+    //        return true;
+    //    }
+    //    catch (AmazonS3Exception ex)
+    //    {
+    //        Console.WriteLine($"Error encountered on server. Message:'{ex.Message}' getting list of objects.");
+    //        return false;
+    //    }
+    //}
 
     public static async Task<bool> DeleteBucketContentsAsync(IAmazonS3 client, string bucketName)
     {

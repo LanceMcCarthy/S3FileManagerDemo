@@ -2,18 +2,22 @@
 using Amazon.Runtime;
 using Amazon.Runtime.CredentialManagement;
 using Amazon.S3;
+using Amazon.S3.Model;
 using CloudFileManager.Web.Helpers;
 using Kendo.Mvc.UI;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Net.Http.Headers;
+using System.Security.AccessControl;
 
 namespace CloudFileManager.Web.Controllers;
 
 public class FileManagerDataController : Controller
 {
     private IAmazonS3 client;
+    // This is the name of the bucket
     private const string BUCKET_NAME = "bkt-for-deployment";
-    private const string KEY_NAME = "aws";
+    // This is the top directory's name
+    private const string KEY_NAME = "file-manager-demo";
 
     protected readonly IWebHostEnvironment HostingEnvironment;
     private readonly FileContentBrowser directoryBrowser;
@@ -60,7 +64,7 @@ public class FileManagerDataController : Controller
     }
 
     // Return a list of files and folders at the desired path
-    public virtual JsonResult Read(string target)
+    public virtual async Task<JsonResult> Read(string target)
     {
         var path = NormalizePath(target);
         ICollection<FileManagerEntry> sessionDir = HttpContext.Session.GetObjectFromJson<ICollection<FileManagerEntry>>(SessionDirectory);
@@ -71,7 +75,48 @@ public class FileManagerDataController : Controller
             {
                 if (sessionDir == null)
                 {
-                    sessionDir = directoryBrowser.GetAll(ContentPath);
+                    //sessionDir = directoryBrowser.GetAll(ContentPath);
+
+                    sessionDir = new List<FileManagerEntry>();
+
+                    var request = new ListObjectsV2Request
+                    {
+                        BucketName = BUCKET_NAME,
+                        Prefix = KEY_NAME
+                    };
+
+                    // Define this here so we can operate on continuation tokens
+                    ListObjectsV2Response response;
+
+                    do
+                    {
+                        response = await client.ListObjectsV2Async(request);
+
+                        foreach (var s3Object in response.S3Objects)
+                        {
+                            // TODO Need ot workj to determine nested directories or files
+                            //var isDirectory = s3Object.Key.EndsWith("/");
+                            //var hasDirectories = isDirectory ? true : false;
+
+                            sessionDir.Add(new FileManagerEntry
+                            {
+                                Name = s3Object.Key,
+                                Path = s3Object.Key,
+                                Extension = Path.GetExtension(s3Object.Key),
+                                IsDirectory = !string.IsNullOrEmpty(s3Object.BucketName),
+                                //HasDirectories = 
+                                Created = s3Object.LastModified,
+                                //CreatedUtc = 
+                                Modified = s3Object.LastModified,
+                                //ModifiedUtc = 
+                                Size = s3Object.Size
+                            });
+                        }
+
+                        // If the response is truncated, set the request ContinuationToken from the NextContinuationToken property of the response.
+                        request.ContinuationToken = response.NextContinuationToken;
+                    }
+                    while (response.IsTruncated);
 
                     HttpContext.Session.SetObjectAsJson(SessionDirectory, sessionDir);
                 }
@@ -138,9 +183,16 @@ public class FileManagerDataController : Controller
         fileStream.Close();
 
         // Take the temp file and upload it to the s3 bucket
-        var success = await S3BucketExtensions.UploadFileAsync(client, BUCKET_NAME, KEY_NAME, tempFilePath);
+        var request = new PutObjectRequest
+        {
+            BucketName = BUCKET_NAME,
+            Key = KEY_NAME,
+            FilePath = tempFilePath
+        };
 
-        if (success)
+        var response = await client.PutObjectAsync(request);
+
+        if (response.HttpStatusCode == System.Net.HttpStatusCode.OK)
         {
             newEntry.Path = Path.Combine(ContentPath, path, file.FileName);
             newEntry.Name = fileName;
@@ -152,32 +204,11 @@ public class FileManagerDataController : Controller
             newEntry.Extension = Path.GetExtension(file.FileName);
             sessionDir.Add(newEntry);
 
-            // ? dont know what we should return to the FileManager in this case.
+            // I dont know what we should return to the FileManager in this case?
             return Json(VirtualizePath(newEntry));
         }
-        else
-        {
-            throw new Exception("Forbidden");
-        }
-        
-        //if (AuthorizeUpload(path, file))
-        //{
-        //    newEntry.Path = Path.Combine(ContentPath, path, file.FileName);
-        //    newEntry.Name = fileName;
-        //    newEntry.Modified = DateTime.Now;
-        //    newEntry.ModifiedUtc = DateTime.Now;
-        //    newEntry.Created = DateTime.Now;
-        //    newEntry.CreatedUtc = DateTime.UtcNow;
-        //    newEntry.Size = file.Length;
-        //    newEntry.Extension = Path.GetExtension(file.FileName);
-        //    sessionDir.Add(newEntry);
 
-        //    HttpContext.Session.SetObjectAsJson(SessionDirectory, sessionDir);
-
-        //    return Json(VirtualizePath(newEntry));
-        //}
-
-        //throw new Exception("Forbidden");
+        throw new Exception("Forbidden");
     }
 
     #endregion
