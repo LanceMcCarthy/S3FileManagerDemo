@@ -1,4 +1,6 @@
 ﻿using Amazon;
+using Amazon.Runtime;
+using Amazon.Runtime.CredentialManagement;
 using Amazon.S3;
 using CloudFileManager.Web.Helpers;
 using Kendo.Mvc.UI;
@@ -28,7 +30,12 @@ public class FileManagerDataController : Controller
         HostingEnvironment = hostingEnvironment;
         directoryBrowser = new FileContentBrowser();
 
-        client = new AmazonS3Client(RegionEndpoint.USEast1);
+        var sharedFile = new SharedCredentialsFile();
+
+        if (sharedFile.TryGetProfile("Default", out var basicProfile) && AWSCredentialsFactory.TryGetAWSCredentials(basicProfile, sharedFile, out var awsCredentials))
+        {
+            client = new AmazonS3Client(awsCredentials, RegionEndpoint.USEast1);
+        }
     }
 
     #region Direct Controller Actions

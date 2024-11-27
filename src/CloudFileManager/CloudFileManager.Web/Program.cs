@@ -24,7 +24,6 @@ using (var serviceScope = app.Services.CreateScope())
     var profile = new CredentialProfile("Default", options);
     var sharedFile = new SharedCredentialsFile();
     sharedFile.RegisterProfile(profile);
-    
 }
 
 // Configure the HTTP request pipeline.
