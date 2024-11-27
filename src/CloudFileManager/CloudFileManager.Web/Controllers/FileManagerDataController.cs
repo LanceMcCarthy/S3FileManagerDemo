@@ -186,7 +186,7 @@ public class FileManagerDataController : Controller
         var request = new PutObjectRequest
         {
             BucketName = BUCKET_NAME,
-            Key = KEY_NAME,
+            Key = fileName,
             FilePath = tempFilePath
         };
 
