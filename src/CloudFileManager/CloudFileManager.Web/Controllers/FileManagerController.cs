@@ -139,12 +139,10 @@ public class FileManagerController : Controller
                 // List files
                 foreach (var s3Object in response.S3Objects)
                 {
-                    var name = s3Object.Key;
-                    var lastSlash = name.LastIndexOf('/');
-                    name = (lastSlash > -1) ? name.Substring(lastSlash) : name;
+                    var name = Path.GetFileNameWithoutExtension(s3Object.Key);
 
-                    //if folder is not "/", add item.  Otherwise skip
-                    if (name == "/")
+                    //if folder has a name, add item.  Otherwise skip
+                    if (name == "")
                         continue;
 
                     var entry = new FileManagerEntry
@@ -299,6 +297,7 @@ public class FileManagerController : Controller
     {
         var sessionDir = HttpContext.Session.GetObjectFromJson<ICollection<FileManagerEntry>>(SessionDirectory);
         var newEntry = new FileManagerEntry();
+        var newPath = path ?? "";
 
         try
         {
@@ -313,7 +312,7 @@ public class FileManagerController : Controller
             var request = new PutObjectRequest
             {
                 BucketName = BucketName,
-                Key = path,
+                Key = newPath + file.FileName,
                 FilePath = tempFilePath,
             };
 
@@ -321,8 +320,8 @@ public class FileManagerController : Controller
 
             if (response.HttpStatusCode == HttpStatusCode.OK)
             {
-                newEntry.Path = Path.Combine(path, file.FileName);
                 newEntry.Name = file.FileName;
+                newEntry.Path = Path.Combine(newPath, file.FileName); 
                 newEntry.Modified = DateTime.Now;
                 newEntry.ModifiedUtc = DateTime.Now;
                 newEntry.Created = DateTime.Now;
