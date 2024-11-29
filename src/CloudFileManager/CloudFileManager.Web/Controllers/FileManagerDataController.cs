@@ -109,7 +109,7 @@ public class FileManagerDataController : Controller
     // Return a list of files and folders at the desired path
     public virtual async Task<JsonResult> Read(string target)
     {
-        ICollection<FileManagerEntry> sessionDir = HttpContext.Session.GetObjectFromJson<ICollection<FileManagerEntry>>(SessionDirectory);
+        var sessionDir = HttpContext.Session.GetObjectFromJson<ICollection<FileManagerEntry>>(SessionDirectory);
 
         try
         {
@@ -131,7 +131,7 @@ public class FileManagerDataController : Controller
                     response = await s3Client.ListObjectsV2Async(request);
 
                     // List folders
-                    foreach (string commonPrefix in response.CommonPrefixes)
+                    foreach (var commonPrefix in response.CommonPrefixes)
                     {
                         Debug.WriteLine("Folder: " + commonPrefix);
 
@@ -166,7 +166,7 @@ public class FileManagerDataController : Controller
                         });
                     }
 
-                    // If the response is truncated, set the request ContinuationToken from the NextContinuationToken property of the response.
+                    // for do-while continuation
                     request.ContinuationToken = response.NextContinuationToken;
                 }
                 while (response.IsTruncated);
@@ -244,7 +244,7 @@ public class FileManagerDataController : Controller
     // Deletes item at the desired path
     public virtual async Task<ActionResult> Destroy(FileManagerEntry entry)
     {
-        ICollection<FileManagerEntry> sessionDir = HttpContext.Session.GetObjectFromJson<ICollection<FileManagerEntry>>(SessionDirectory);
+        var sessionDir = HttpContext.Session.GetObjectFromJson<ICollection<FileManagerEntry>>(SessionDirectory);
         var currentEntry = sessionDir.FirstOrDefault(x => x.Path == entry.Path);
 
         var request = new ListObjectsV2Request
@@ -260,16 +260,26 @@ public class FileManagerDataController : Controller
             {
                 response = await s3Client.ListObjectsV2Async(request);
 
-                response.S3Objects.ForEach(async obj => await s3Client.DeleteObjectAsync(BucketName, obj.Key));
+                response.S3Objects.ForEach(async (s3Object) =>
+                {
+                    try
+                    {
+                        await s3Client.DeleteObjectAsync(BucketName, s3Object.Key);
+                    }
+                    catch (Exception e)
+                    {
+                        throw new Exception($"Could not delete {s3Object.Key}. Exception {e.Message}");
+                    }
+                });
 
-                // If the response is truncated, set the request ContinuationToken from the NextContinuationToken property of the response.
+                // for do-while continuation
                 request.ContinuationToken = response.NextContinuationToken;
             }
             while (response.IsTruncated);
 
             sessionDir.Remove(currentEntry);
             HttpContext.Session.SetObjectAsJson(SessionDirectory, sessionDir);
-            return Json(new object[0]);
+            return Json(Array.Empty<object>());
         }
         catch (AmazonS3Exception ex)
         {
@@ -282,15 +292,13 @@ public class FileManagerDataController : Controller
     [AcceptVerbs("POST")]
     public virtual async Task<ActionResult> Upload(string path, IFormFile file)
     {
-        ICollection<FileManagerEntry> sessionDir = HttpContext.Session.GetObjectFromJson<ICollection<FileManagerEntry>>(SessionDirectory);
-        FileManagerEntry newEntry = new FileManagerEntry();
-
-        // this was using an extensionless file name
-        //var fileName = Path.GetFileNameWithoutExtension(file.FileName);
+        var sessionDir = HttpContext.Session.GetObjectFromJson<ICollection<FileManagerEntry>>(SessionDirectory);
+        var newEntry = new FileManagerEntry();
 
         try
         {
-            // Saving a temporary file (because AWS SDK doesnt support stream)
+            // IMPORTANT!
+            // We are saving a temporary file because AWS SDK doesn't support uploading from stream.
             var tempFilePath = Path.Combine(Path.GetTempPath(), file.FileName);
             await using var fileStream = System.IO.File.OpenWrite(tempFilePath);
             await file.CopyToAsync(fileStream);
@@ -334,7 +342,7 @@ public class FileManagerDataController : Controller
 
     #region Helpers
 
-    private AmazonS3Client AuthorizeAmazonS3Client()
+    private static AmazonS3Client AuthorizeAmazonS3Client()
     {
         var sharedFile = new SharedCredentialsFile();
 
