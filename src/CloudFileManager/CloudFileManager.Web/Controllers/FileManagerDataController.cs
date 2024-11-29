@@ -1,6 +1,4 @@
-﻿using System.Diagnostics;
-using Amazon;
-using Amazon.Runtime;
+﻿using Amazon;
 using Amazon.Runtime.CredentialManagement;
 using Amazon.S3;
 using Amazon.S3.Model;
@@ -8,17 +6,16 @@ using CloudFileManager.Web.Helpers;
 using Kendo.Mvc.UI;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Net.Http.Headers;
-using System.Security.AccessControl;
+using System.Diagnostics;
 
 namespace CloudFileManager.Web.Controllers;
 
 public class FileManagerDataController : Controller
 {
     private IAmazonS3 client;
-    // This is the name of the bucket
+    // This is the name of the bucket, the root directory in the s3 bucket.
+    // It will not be in any key value, but is required for the REST API to know which bucket you're trying to use.
     private const string BUCKET_NAME = "bkt-for-deployment";
-    // This is the top directory's name
-    private const string KEY_NAME = "file-manager-demo";
 
     protected readonly IWebHostEnvironment HostingEnvironment;
     private readonly FileContentBrowser directoryBrowser;
