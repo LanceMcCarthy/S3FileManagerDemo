@@ -110,7 +110,7 @@ public class FileManagerDataController : Controller
                         foreach (var s3Object in response.S3Objects)
                         {
                             Debug.WriteLine("File: " + s3Object.Key);
-                            
+
                             // Add file to the list for FileManager
                             sessionDir.Add(new FileManagerEntry
                             {
@@ -119,10 +119,10 @@ public class FileManagerDataController : Controller
                                 Extension = Path.GetExtension(s3Object.Key),
                                 IsDirectory = false,
                                 HasDirectories = false,
-                                Created = TimeZoneInfo.ConvertTimeFromUtc(s3Object.LastModified, TimeZoneInfo.Local),
-                                CreatedUtc = s3Object.LastModified,
-                                Modified = TimeZoneInfo.ConvertTimeFromUtc(s3Object.LastModified, TimeZoneInfo.Local),
-                                ModifiedUtc = s3Object.LastModified,
+                                Created = s3Object.LastModified,
+                                CreatedUtc = DateTime.SpecifyKind(s3Object.LastModified, DateTimeKind.Utc),
+                                Modified = s3Object.LastModified,
+                                ModifiedUtc = DateTime.SpecifyKind(s3Object.LastModified, DateTimeKind.Utc),
                                 Size = s3Object.Size
                             });
                         }
@@ -168,20 +168,52 @@ public class FileManagerDataController : Controller
     }
 
     // Deletes item at the desired path
-    public virtual ActionResult Destroy(FileManagerEntry entry)
+    public virtual async Task<ActionResult> Destroy(FileManagerEntry entry)
     {
         ICollection<FileManagerEntry> sessionDir = HttpContext.Session.GetObjectFromJson<ICollection<FileManagerEntry>>(SessionDirectory);
         var path = Path.Combine(ContentPath, NormalizePath(entry.Path));
         var currentEntry = sessionDir.FirstOrDefault(x => x.Path == path);
 
-        if (currentEntry != null)
+        var request = new ListObjectsV2Request
         {
+            BucketName = BUCKET_NAME,
+        };
+
+        try
+        {
+            ListObjectsV2Response response;
+
+            do
+            {
+                response = await client.ListObjectsV2Async(request);
+
+                response.S3Objects.ForEach(async obj => await client.DeleteObjectAsync(BUCKET_NAME, obj.Key));
+
+                // If the response is truncated, set the request ContinuationToken
+                // from the NextContinuationToken property of the response.
+                request.ContinuationToken = response.NextContinuationToken;
+            }
+            while (response.IsTruncated);
+
             sessionDir.Remove(currentEntry);
             HttpContext.Session.SetObjectAsJson(SessionDirectory, sessionDir);
             return Json(new object[0]);
         }
+        catch (AmazonS3Exception ex)
+        {
+            Console.WriteLine($"Error deleting objects: {ex.Message}");
+            throw new Exception("File Not Found");
+        }
 
-        throw new Exception("File Not Found");
+
+        //if (currentEntry != null)
+        //{
+        //    sessionDir.Remove(currentEntry);
+        //    HttpContext.Session.SetObjectAsJson(SessionDirectory, sessionDir);
+        //    return Json(new object[0]);
+        //}
+
+        //throw new Exception("File Not Found");
     }
 
     // Uploads actual file data
