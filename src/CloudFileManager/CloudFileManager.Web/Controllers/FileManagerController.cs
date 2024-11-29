@@ -187,6 +187,10 @@ public class FileManagerController : Controller
     // rename a folder path or a filename
     public virtual async Task<ActionResult> Update(string target, FileManagerEntry entry)
     {
+        string directory = Path.GetDirectoryName(entry.Path);
+        string ext = entry.Extension ?? "";
+        string newPath = NormalizePath(Path.Combine(directory, entry.Name, ext));
+
         try
         {
             // Phase 1. Copy the object to a new key
@@ -195,7 +199,7 @@ public class FileManagerController : Controller
                 SourceBucket = BucketName,
                 SourceKey = entry.Path,
                 DestinationBucket = BucketName,
-                DestinationKey = target
+                DestinationKey = newPath
             };
 
             var copyResponse = await s3Client.CopyObjectAsync(copyRequest);
@@ -235,7 +239,7 @@ public class FileManagerController : Controller
         var currentEntry = sessionDir.FirstOrDefault(x => x.Path == entry.Path);
 
         currentEntry.Name = entry.Name;
-        currentEntry.Path = entry.Path;
+        currentEntry.Path = newPath;
         currentEntry.Extension = entry.Extension ?? "";
 
         HttpContext.Session.SetObjectAsJson(SessionDirectory, sessionDir);
@@ -321,7 +325,7 @@ public class FileManagerController : Controller
             if (response.HttpStatusCode == HttpStatusCode.OK)
             {
                 newEntry.Name = file.FileName;
-                newEntry.Path = Path.Combine(newPath, file.FileName); 
+                newEntry.Path = Path.Combine(newPath, file.FileName);
                 newEntry.Modified = DateTime.Now;
                 newEntry.ModifiedUtc = DateTime.Now;
                 newEntry.Created = DateTime.Now;
@@ -391,5 +395,10 @@ public class FileManagerController : Controller
         return response.CommonPrefixes.Count > 0;
     }
 
+    protected virtual string NormalizePath(string path)
+    {
+        var newString = path.Replace('\\', '/');
+        return newString;
+    }
     #endregion
 }
