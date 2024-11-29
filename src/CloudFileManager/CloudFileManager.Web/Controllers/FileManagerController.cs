@@ -25,11 +25,14 @@ public class FileManagerController : Controller
         // If the path is empty, we're creating a new folder
         if (string.IsNullOrEmpty(entry.Path))
         {
+
+            //'New Folder/' Created
+            //NOTE: If creating a new folder when the "New Folder" exists, it will overwrite
+            //The developer will need to rename for each initialization
             var putRequest = new PutObjectRequest
             {
                 BucketName = BucketName,
-                Key = target,
-                ContentBody = string.Empty
+                Key = target ?? "New Folder/",
             };
 
             var response = await s3Client.PutObjectAsync(putRequest);
@@ -145,28 +148,28 @@ public class FileManagerController : Controller
                         continue;
 
                     var entry = new FileManagerEntry
-                        {
-                            Name = name,
-                            Path = s3Object.Key,
-                            Extension = Path.GetExtension(s3Object.Key),
-                            IsDirectory = false,
-                            HasDirectories = false,
-                            Created = s3Object.LastModified,
-                            CreatedUtc = DateTime.SpecifyKind(s3Object.LastModified, DateTimeKind.Utc),
-                            Modified = s3Object.LastModified,
-                            ModifiedUtc = DateTime.SpecifyKind(s3Object.LastModified, DateTimeKind.Utc),
-                            Size = s3Object.Size
-                        };
+                    {
+                        Name = name,
+                        Path = s3Object.Key,
+                        Extension = Path.GetExtension(s3Object.Key),
+                        IsDirectory = false,
+                        HasDirectories = false,
+                        Created = s3Object.LastModified,
+                        CreatedUtc = DateTime.SpecifyKind(s3Object.LastModified, DateTimeKind.Utc),
+                        Modified = s3Object.LastModified,
+                        ModifiedUtc = DateTime.SpecifyKind(s3Object.LastModified, DateTimeKind.Utc),
+                        Size = s3Object.Size
+                    };
 
-                        // If the item is a directory, update related properties
-                        if (s3Object.Key.Last() == '/')
-                        {
-                            entry.IsDirectory = true;
-                        }
-
-                        // Add file to the list for FileManager
-                        sessionDir.Add(entry);
+                    // If the item is a directory, update related properties
+                    if (s3Object.Key.Last() == '/')
+                    {
+                        entry.IsDirectory = true;
                     }
+
+                    // Add file to the list for FileManager
+                    sessionDir.Add(entry);
+                }
 
                 // for do-while continuation
                 request.ContinuationToken = response.NextContinuationToken;
