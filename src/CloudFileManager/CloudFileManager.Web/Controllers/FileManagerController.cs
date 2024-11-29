@@ -7,6 +7,7 @@ using Kendo.Mvc.UI;
 using Microsoft.AspNetCore.Mvc;
 using System.Diagnostics;
 using System.Net;
+using Telerik.SvgIcons;
 
 namespace CloudFileManager.Web.Controllers;
 
@@ -99,51 +100,53 @@ public class FileManagerController : Controller
     // Return a list of files and folders at the desired path
     public virtual async Task<JsonResult> Read(string target)
     {
-        var sessionDir = HttpContext.Session.GetObjectFromJson<ICollection<FileManagerEntry>>(SessionDirectory);
+        var sessionDir = new List<FileManagerEntry>();
 
         try
         {
-            if (sessionDir == null)
+            var request = new ListObjectsV2Request
             {
-                sessionDir = new List<FileManagerEntry>();
+                BucketName = BucketName,
+                Prefix = target ?? "",
+                Delimiter = "/"
+            };
 
-                var request = new ListObjectsV2Request
+            ListObjectsV2Response response;
+
+            do
+            {
+                response = await s3Client.ListObjectsV2Async(request);
+
+                // List folders
+                foreach (var commonPrefix in response.CommonPrefixes)
                 {
-                    BucketName = BucketName,
-                    Prefix = "",
-                    Delimiter = "/"
-                };
+                    Debug.WriteLine("Folder: " + commonPrefix);
 
-                ListObjectsV2Response response;
+                    // Add folder to list for the FileManager
+                    sessionDir.Add(new FileManagerEntry
+                    {
+                        Name = commonPrefix,
+                        Path = commonPrefix,
+                        IsDirectory = true,
+                        HasDirectories = await CheckForSubdirectories(commonPrefix),
 
-                do
+                    });
+                }
+
+                // List files
+                foreach (var s3Object in response.S3Objects)
                 {
-                    response = await s3Client.ListObjectsV2Async(request);
+                    var name = s3Object.Key;
+                    var lastSlash = name.LastIndexOf('/');
+                    name = (lastSlash > -1) ? name.Substring(lastSlash) : name;
 
-                    // List folders
-                    foreach (var commonPrefix in response.CommonPrefixes)
-                    {
-                        Debug.WriteLine("Folder: " + commonPrefix);
+                    //if folder is not "/", add item.  Otherwise skip
+                    if (name == "/")
+                        continue;
 
-                        // Add folder to list for the FileManager
-                        sessionDir.Add(new FileManagerEntry
+                    var entry = new FileManagerEntry
                         {
-                            Name = commonPrefix,
-                            Path = commonPrefix,
-                            IsDirectory = true,
-                            //HasDirectories = ? not sure how to implement this yet, do we check for delimiter?
-                        });
-                    }
-
-                    // List files
-                    foreach (var s3Object in response.S3Objects)
-                    {
-                        Debug.WriteLine("File: " + s3Object.Key);
-
-                        // Add file to the list for FileManager
-                        sessionDir.Add(new FileManagerEntry
-                        {
-                            Name = s3Object.Key,
+                            Name = name,
                             Path = s3Object.Key,
                             Extension = Path.GetExtension(s3Object.Key),
                             IsDirectory = false,
@@ -153,16 +156,24 @@ public class FileManagerController : Controller
                             Modified = s3Object.LastModified,
                             ModifiedUtc = DateTime.SpecifyKind(s3Object.LastModified, DateTimeKind.Utc),
                             Size = s3Object.Size
-                        });
+                        };
+
+                        // If the item is a directory, update related properties
+                        if (s3Object.Key.Last() == '/')
+                        {
+                            entry.IsDirectory = true;
+                        }
+
+                        // Add file to the list for FileManager
+                        sessionDir.Add(entry);
                     }
 
-                    // for do-while continuation
-                    request.ContinuationToken = response.NextContinuationToken;
-                }
-                while (response.IsTruncated);
-
-                HttpContext.Session.SetObjectAsJson(SessionDirectory, sessionDir);
+                // for do-while continuation
+                request.ContinuationToken = response.NextContinuationToken;
             }
+            while (response.IsTruncated);
+
+            HttpContext.Session.SetObjectAsJson(SessionDirectory, sessionDir);
 
             return Json(sessionDir);
         }
@@ -240,6 +251,7 @@ public class FileManagerController : Controller
         var request = new ListObjectsV2Request
         {
             BucketName = BucketName,
+            Prefix = entry.Path
         };
 
         try
@@ -327,7 +339,6 @@ public class FileManagerController : Controller
         return Forbid();
     }
 
-
     #region Helpers
 
     private static AmazonS3Client AuthorizeAmazonS3Client()
@@ -364,6 +375,18 @@ public class FileManagerController : Controller
             .Where(d => d.IsDirectory && d.Path != entry.Path).ToList();
 
         return sessionDir.Any(item => item.IsDirectory && item.Path.Contains(entry.Path));
+    }
+
+    private async Task<bool> CheckForSubdirectories(string keyPrefix)
+    {
+        var response = await s3Client.ListObjectsV2Async(new ListObjectsV2Request
+        {
+            BucketName = BucketName,
+            Prefix = keyPrefix,
+            Delimiter = "/"
+        });
+
+        return response.CommonPrefixes.Count > 0;
     }
 
     #endregion
