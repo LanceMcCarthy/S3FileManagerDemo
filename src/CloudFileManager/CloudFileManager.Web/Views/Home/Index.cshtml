@@ -7,7 +7,7 @@
     {
         ds.Create(operation => operation
             .Type(HttpVerbs.Post)
-            .Action("Create", "FileManagerData")
+            .Action("CreateDirectory", "FileManagerData")
         );
         ds.Read(operation => operation
             .Type(HttpVerbs.Post)
