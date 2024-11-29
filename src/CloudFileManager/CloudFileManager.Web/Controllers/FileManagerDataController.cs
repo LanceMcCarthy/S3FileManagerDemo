@@ -1,4 +1,5 @@
-﻿using Amazon;
+﻿using System.Diagnostics;
+using Amazon;
 using Amazon.Runtime;
 using Amazon.Runtime.CredentialManagement;
 using Amazon.S3;
@@ -81,33 +82,50 @@ public class FileManagerDataController : Controller
 
                     var request = new ListObjectsV2Request
                     {
-                        BucketName = BUCKET_NAME
+                        BucketName = BUCKET_NAME,
+                        Prefix = "",
+                        Delimiter = "/"
                     };
 
                     // Define this here so we can operate on continuation tokens
                     ListObjectsV2Response response;
-
+                    
                     do
                     {
                         response = await client.ListObjectsV2Async(request);
 
+                        // List folders
+                        foreach (string commonPrefix in response.CommonPrefixes)
+                        {
+                            Debug.WriteLine("Folder: " + commonPrefix);
+
+                            // Add folder to list for the FileManager
+                            sessionDir.Add(new FileManagerEntry
+                            {
+                                Name = commonPrefix,
+                                Path = commonPrefix,
+                                IsDirectory = true,
+                                //HasDirectories = ? not sure how to implement this yet
+                            });
+                        }
+
+                        // List files
                         foreach (var s3Object in response.S3Objects)
                         {
-                            // TODO Need ot workj to determine nested directories or files
-                            //var isDirectory = s3Object.Key.EndsWith("/");
-                            //var hasDirectories = isDirectory ? true : false;
-
+                            Debug.WriteLine("File: " + s3Object.Key);
+                            
+                            // Add file to the list for FileManager
                             sessionDir.Add(new FileManagerEntry
                             {
                                 Name = s3Object.Key,
                                 Path = s3Object.Key,
                                 Extension = Path.GetExtension(s3Object.Key),
-                                IsDirectory = !string.IsNullOrEmpty(s3Object.BucketName),
-                                //HasDirectories = 
-                                Created = s3Object.LastModified,
-                                //CreatedUtc = 
-                                Modified = s3Object.LastModified,
-                                //ModifiedUtc = 
+                                IsDirectory = false,
+                                HasDirectories = false,
+                                Created = TimeZoneInfo.ConvertTimeFromUtc(s3Object.LastModified, TimeZoneInfo.Local),
+                                CreatedUtc = s3Object.LastModified,
+                                Modified = TimeZoneInfo.ConvertTimeFromUtc(s3Object.LastModified, TimeZoneInfo.Local),
+                                ModifiedUtc = s3Object.LastModified,
                                 Size = s3Object.Size
                             });
                         }
@@ -120,9 +138,12 @@ public class FileManagerDataController : Controller
                     HttpContext.Session.SetObjectAsJson(SessionDirectory, sessionDir);
                 }
 
-                var result = sessionDir.Where(d => TargetMatch(target, d.Path)).Select(VirtualizePath).ToList();
+                // Old local server file  preparation, we needed to virtualize the Windows server paths into FileManager paths
+                //var result = sessionDir.Where(d => TargetMatch(target, d.Path)).Select(VirtualizePath).ToList();
+                //return Json(result.ToArray());
 
-                return Json(result.ToArray());
+                // We probably dont need to do this anymore, because the AWS file paths already look like fileManager paths.
+                return Json(sessionDir);
             }
             catch (DirectoryNotFoundException)
             {
@@ -173,7 +194,9 @@ public class FileManagerDataController : Controller
         ICollection<FileManagerEntry> sessionDir = HttpContext.Session.GetObjectFromJson<ICollection<FileManagerEntry>>(SessionDirectory);
         FileManagerEntry newEntry = new FileManagerEntry();
         path = NormalizePath(path);
-        var fileName = Path.GetFileNameWithoutExtension(file.FileName);
+
+        // this was using an extensionless file name
+        //var fileName = Path.GetFileNameWithoutExtension(file.FileName);
 
         // Saving a temporary file (because AWS SDK doesnt support stream)
         var tempFilePath = Path.Combine(Path.GetTempPath(), file.FileName);
@@ -185,8 +208,8 @@ public class FileManagerDataController : Controller
         var request = new PutObjectRequest
         {
             BucketName = BUCKET_NAME,
-            Key = fileName,
-            FilePath = tempFilePath
+            Key = file.FileName,
+            FilePath = tempFilePath,
         };
 
         var response = await client.PutObjectAsync(request);
@@ -194,7 +217,7 @@ public class FileManagerDataController : Controller
         if (response.HttpStatusCode == System.Net.HttpStatusCode.OK)
         {
             newEntry.Path = Path.Combine(ContentPath, path, file.FileName);
-            newEntry.Name = fileName;
+            newEntry.Name = file.FileName;
             newEntry.Modified = DateTime.Now;
             newEntry.ModifiedUtc = DateTime.Now;
             newEntry.Created = DateTime.Now;
