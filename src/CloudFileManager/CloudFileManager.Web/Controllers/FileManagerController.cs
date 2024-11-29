@@ -10,21 +10,11 @@ using System.Net;
 
 namespace CloudFileManager.Web.Controllers;
 
-public class FileManagerDataController : Controller
+public class FileManagerController : Controller
 {
-    protected readonly IWebHostEnvironment HostingEnvironment;
-    private readonly IAmazonS3 s3Client;
+    private readonly IAmazonS3 s3Client = AuthorizeAmazonS3Client();
     private const string BucketName = "bkt-for-deployment";
     private const string SessionDirectory = "Dir";
-
-    public FileManagerDataController(IWebHostEnvironment hostingEnvironment)
-    {
-        HostingEnvironment = hostingEnvironment;
-
-        s3Client = AuthorizeAmazonS3Client();
-    }
-
-    #region FileManager Actions
 
     // This is for creating a new folder in the s3 bucket
     public virtual async Task<ActionResult> CreateDirectory(string target, FileManagerEntry entry)
@@ -337,13 +327,15 @@ public class FileManagerDataController : Controller
         return Forbid();
     }
 
-    #endregion
-
 
     #region Helpers
 
     private static AmazonS3Client AuthorizeAmazonS3Client()
     {
+        // ***** VERY IMPORTANT ***** //
+        // To use this demo, you need a legacy credentials file located at '~/.aws/credentials' with the following content: https://docs.aws.amazon.com/sdk-for-net/v3/developer-guide/creds-file.html#creds-file-default
+        // In a real production app, do NOT do this, instead follow the instructions here https://docs.aws.amazon.com/sdk-for-net/v3/developer-guide/creds-idc.html
+
         var sharedFile = new SharedCredentialsFile();
 
         if (sharedFile.TryGetProfile("Default", out var basicProfile) && AWSCredentialsFactory.TryGetAWSCredentials(basicProfile, sharedFile, out var awsCredentials))

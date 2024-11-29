@@ -7,19 +7,19 @@
     {
         ds.Create(operation => operation
             .Type(HttpVerbs.Post)
-            .Action("CreateDirectory", "FileManagerData")
+            .Action("CreateDirectory", "FileManager")
         );
         ds.Read(operation => operation
             .Type(HttpVerbs.Post)
-            .Action("Read", "FileManagerData")
+            .Action("Read", "FileManager")
         );
         ds.Update(operation => operation
             .Type(HttpVerbs.Post)
-            .Action("Update", "FileManagerData")
+            .Action("Update", "FileManager")
         );
         ds.Destroy(operation => operation
             .Type(HttpVerbs.Post)
-            .Action("Destroy", "FileManagerData")
+            .Action("Destroy", "FileManager")
         );
     })
     .UploadUrl("Upload", "FileManagerData")
