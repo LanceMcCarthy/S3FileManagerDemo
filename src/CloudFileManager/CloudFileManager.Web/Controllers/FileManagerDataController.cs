@@ -81,8 +81,7 @@ public class FileManagerDataController : Controller
 
                     var request = new ListObjectsV2Request
                     {
-                        BucketName = BUCKET_NAME,
-                        Prefix = KEY_NAME
+                        BucketName = BUCKET_NAME
                     };
 
                     // Define this here so we can operate on continuation tokens
