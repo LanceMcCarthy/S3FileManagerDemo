@@ -6,10 +6,7 @@ using CloudFileManager.Web.Helpers;
 using Kendo.Mvc.UI;
 using Microsoft.AspNetCore.Mvc;
 using System.Diagnostics;
-using System.IO;
 using System.Net;
-using Telerik.SvgIcons;
-using static System.Net.Mime.MediaTypeNames;
 
 namespace CloudFileManager.Web.Controllers;
 
@@ -27,74 +24,12 @@ public class FileManagerController : Controller
         // If the path is empty, we're creating a new folder
         if (string.IsNullOrEmpty(entry.Path))
         {
-
             //'New Folder/' Created
-            //NOTE: If creating a new folder when the "New Folder" exists, it will overwrite
-            //The developer will need to rename for each initialization
-            var putRequest = new PutObjectRequest
-            {
-                BucketName = BucketName,
-                Key = target ?? "New Folder/",
-            };
-
-            var response = await s3Client.PutObjectAsync(putRequest);
-
-            if (response.HttpStatusCode != HttpStatusCode.OK)
-            {
-                throw new Exception("Error creating directory... HttpStatusCode != HttpStatusCode.OK");
-            }
-
-            newEntry = new FileManagerEntry
-            {
-                Name = entry.Name,
-                Path = target,
-                IsDirectory = true,
-                HasDirectories = false,
-                Created = DateTime.Now,
-                CreatedUtc = DateTime.SpecifyKind(DateTime.Now, DateTimeKind.Utc),
-                Modified = DateTime.Now,
-                ModifiedUtc = DateTime.SpecifyKind(DateTime.Now, DateTimeKind.Utc)
-            };
+            newEntry = await S3CreateNewDirectoryAsync(target, entry);
         }
-        // Otherwise, we're copying an existing item
-        else
+        else // Otherwise, we're copying an existing item
         {
-            try
-            {
-                var request = new CopyObjectRequest
-                {
-                    SourceBucket = BucketName,
-                    SourceKey = Path.Join(entry.Path, entry.Name, entry.Extension),
-                    DestinationBucket = BucketName,
-                    DestinationKey = target,
-                };
-
-                var response = await s3Client.CopyObjectAsync(request);
-
-                if (response.HttpStatusCode != HttpStatusCode.OK)
-                {
-                    throw new Exception("Error copying object... HttpStatusCode != HttpStatusCode.OK");
-                }
-
-                newEntry = new FileManagerEntry
-                {
-                    Name = entry.Name,
-                    Path = target,
-                    Extension = entry.Extension,
-                    IsDirectory = false,
-                    HasDirectories = false,
-                    Created = DateTime.Now,
-                    CreatedUtc = DateTime.SpecifyKind(DateTime.Now, DateTimeKind.Utc),
-                    Modified = DateTime.Now,
-                    ModifiedUtc = DateTime.SpecifyKind(DateTime.Now, DateTimeKind.Utc),
-                    Size = entry.Size
-                };
-            }
-            catch (AmazonS3Exception ex)
-            {
-                Console.WriteLine($"Error copying object: '{ex.Message}'");
-                throw;
-            }
+            newEntry = await S3CopyItemAsync(target, entry);
         }
 
         UpdateSessionDir();
@@ -105,76 +40,9 @@ public class FileManagerController : Controller
     // Return a list of files and folders at the desired path
     public virtual async Task<JsonResult> Read(string target)
     {
-        var sessionDir = new List<FileManagerEntry>();
-
         try
         {
-            var request = new ListObjectsV2Request
-            {
-                BucketName = BucketName,
-                Prefix = target ?? "",
-                Delimiter = "/"
-            };
-
-            ListObjectsV2Response response;
-
-            do
-            {
-                response = await s3Client.ListObjectsV2Async(request);
-
-                // List folders
-                foreach (var commonPrefix in response.CommonPrefixes)
-                {
-                    Debug.WriteLine("Folder: " + commonPrefix);
-
-                    // Add folder to list for the FileManager
-                    sessionDir.Add(new FileManagerEntry
-                    {
-                        Name = commonPrefix,
-                        Path = commonPrefix,
-                        IsDirectory = true,
-                        HasDirectories = await CheckForSubdirectories(commonPrefix),
-
-                    });
-                }
-
-                // List files
-                foreach (var s3Object in response.S3Objects)
-                {
-                    var name = Path.GetFileNameWithoutExtension(s3Object.Key);
-
-                    //if folder has a name, add item.  Otherwise skip
-                    if (name == "")
-                        continue;
-
-                    var entry = new FileManagerEntry
-                    {
-                        Name = name,
-                        Path = s3Object.Key,
-                        Extension = Path.GetExtension(s3Object.Key),
-                        IsDirectory = false,
-                        HasDirectories = false,
-                        Created = s3Object.LastModified,
-                        CreatedUtc = DateTime.SpecifyKind(s3Object.LastModified, DateTimeKind.Utc),
-                        Modified = s3Object.LastModified,
-                        ModifiedUtc = DateTime.SpecifyKind(s3Object.LastModified, DateTimeKind.Utc),
-                        Size = s3Object.Size
-                    };
-
-                    // If the item is a directory, update related properties
-                    if (s3Object.Key.Last() == '/')
-                    {
-                        entry.IsDirectory = true;
-                    }
-
-                    // Add file to the list for FileManager
-                    sessionDir.Add(entry);
-                }
-
-                // for do-while continuation
-                request.ContinuationToken = response.NextContinuationToken;
-            }
-            while (response.IsTruncated);
+            var sessionDir = await S3ListContentsAsync(target);
 
             HttpContext.Session.SetObjectAsJson(SessionDirectory, sessionDir);
 
@@ -189,78 +57,17 @@ public class FileManagerController : Controller
     // rename a folder path or a filename
     public virtual async Task<ActionResult> Update(string target, FileManagerEntry entry)
     {
-        string newPath = "";
+        var newPath = "";
 
         try
         {
-
             if (entry.IsDirectory) // rename a folder
             {
-                // Get a list of the current folders's objects
-                var originalContentsResponse = await s3Client.ListObjectsV2Async(new ListObjectsV2Request
-                {
-                    BucketName = BucketName,
-                    Prefix = entry.Path // <-- ORIGINAL_FOLDER_NAME
-                });
-
-                // With the new folder created, copy all the files out of the original directory into the new directory
-                originalContentsResponse.S3Objects.ForEach(async (s3Object) =>
-                {
-                    newPath = s3Object.Key.Replace(entry.Path, entry.Name);
-
-                    if (newPath.Last() != '/') newPath += "/";
-
-                    await s3Client.CopyObjectAsync(new CopyObjectRequest
-                    {
-                        SourceBucket = BucketName,
-                        SourceKey = s3Object.Key,
-                        DestinationBucket = BucketName,
-                        DestinationKey = newPath
-                    });
-                });
-
-                // Cleanup phase - Delete original folder and all its contents
-                await s3Client.DeleteObjectAsync(BucketName, entry.Path);
+                newPath = await S3RenameDirectoryAsync(target, entry);
             }
             else
             {
-                string directory = Path.GetDirectoryName(entry.Path);
-                string ext = entry.Extension ?? "";
-
-                //Concat extension
-                newPath = NormalizePath(Path.Combine(directory, entry.Name + ext));
-
-                // Phase 1. Copy the object to a new key
-                var copyRequest = new CopyObjectRequest
-                {
-                    SourceBucket = BucketName,
-                    SourceKey = entry.Path,
-                    DestinationBucket = BucketName,
-                    DestinationKey = newPath
-                };
-
-                var copyResponse = await s3Client.CopyObjectAsync(copyRequest);
-
-                if (copyResponse.HttpStatusCode != HttpStatusCode.OK)
-                {
-                    throw new Exception("Error copying object in Update method.");
-                }
-
-                //// Phase 2. Delete the original object
-                var deleteRequest = new DeleteObjectRequest
-                {
-                    BucketName = BucketName,
-                    Key = entry.Path
-                };
-
-                var deleteResponse = await s3Client.DeleteObjectAsync(deleteRequest);
-
-                //delete original file object after rename successfully with 204
-                if (deleteResponse.HttpStatusCode != HttpStatusCode.NoContent)
-                {
-                    throw new Exception("Error deleting original object in Update method.");
-                }
-
+                newPath = await S3RenameFileAsync(target, entry);
             }
         }
         catch (AmazonS3Exception e)
@@ -273,8 +80,7 @@ public class FileManagerController : Controller
         }
 
 
-        // Phase 3. Renaming FileManager Item
-
+        // Phase 3. Renaming FileManager data source
         var sessionDir = HttpContext.Session.GetObjectFromJson<ICollection<FileManagerEntry>>(SessionDirectory);
         var currentEntry = sessionDir.FirstOrDefault(x => x.Path == entry.Path);
 
@@ -293,46 +99,11 @@ public class FileManagerController : Controller
         var sessionDir = HttpContext.Session.GetObjectFromJson<ICollection<FileManagerEntry>>(SessionDirectory);
         var currentEntry = sessionDir.FirstOrDefault(x => x.Path == entry.Path);
 
-        var request = new ListObjectsV2Request
-        {
-            BucketName = BucketName,
-            Prefix = entry.Path
-        };
+        await S3DeleteAsync(entry);
 
-        try
-        {
-            ListObjectsV2Response response;
-
-            do
-            {
-                response = await s3Client.ListObjectsV2Async(request);
-
-                response.S3Objects.ForEach(async (s3Object) =>
-                {
-                    try
-                    {
-                        await s3Client.DeleteObjectAsync(BucketName, s3Object.Key);
-                    }
-                    catch (Exception e)
-                    {
-                        throw new Exception($"Could not delete {s3Object.Key}. Exception {e.Message}");
-                    }
-                });
-
-                // for do-while continuation
-                request.ContinuationToken = response.NextContinuationToken;
-            }
-            while (response.IsTruncated);
-
-            sessionDir.Remove(currentEntry);
-            HttpContext.Session.SetObjectAsJson(SessionDirectory, sessionDir);
-            return Json(Array.Empty<object>());
-        }
-        catch (AmazonS3Exception ex)
-        {
-            Console.WriteLine($"Error deleting objects: {ex.Message}");
-            throw new Exception("File Not Found");
-        }
+        sessionDir.Remove(currentEntry);
+        HttpContext.Session.SetObjectAsJson(SessionDirectory, sessionDir);
+        return Json(Array.Empty<object>());
     }
 
     // Uploads actual file data
@@ -385,7 +156,7 @@ public class FileManagerController : Controller
         return Forbid();
     }
 
-    #region Helpers
+    #region S3 Methods
 
     private static AmazonS3Client AuthorizeAmazonS3Client()
     {
@@ -402,6 +173,279 @@ public class FileManagerController : Controller
 
         throw new Exception("Could not authorize Amazon S3 client");
     }
+
+    private async Task<List<FileManagerEntry>> S3ListContentsAsync(string directory)
+    {
+        var entries = new List<FileManagerEntry>();
+
+        var request = new ListObjectsV2Request
+        {
+            BucketName = BucketName,
+            Prefix = directory ?? "",
+            Delimiter = "/"
+        };
+
+        ListObjectsV2Response response;
+
+        do
+        {
+            response = await s3Client.ListObjectsV2Async(request);
+
+            // List folders
+            foreach (var commonPrefix in response.CommonPrefixes)
+            {
+                Debug.WriteLine("Folder: " + commonPrefix);
+
+                // Add folder to list for the FileManager
+                entries.Add(new FileManagerEntry
+                {
+                    Name = commonPrefix,
+                    Path = commonPrefix,
+                    IsDirectory = true,
+                    HasDirectories = await CheckForSubdirectories(commonPrefix)
+                });
+            }
+
+            // List files
+            foreach (var s3Object in response.S3Objects)
+            {
+                var name = Path.GetFileNameWithoutExtension(s3Object.Key);
+
+                //if folder has a name, add item.  Otherwise skip
+                if (name == "")
+                    continue;
+
+                var entry = new FileManagerEntry
+                {
+                    Name = name,
+                    Path = s3Object.Key,
+                    Extension = Path.GetExtension(s3Object.Key),
+                    IsDirectory = false,
+                    HasDirectories = false,
+                    Created = s3Object.LastModified,
+                    CreatedUtc = DateTime.SpecifyKind(s3Object.LastModified, DateTimeKind.Utc),
+                    Modified = s3Object.LastModified,
+                    ModifiedUtc = DateTime.SpecifyKind(s3Object.LastModified, DateTimeKind.Utc),
+                    Size = s3Object.Size
+                };
+
+                // If the item is a directory, update related properties
+                if (s3Object.Key.Last() == '/')
+                {
+                    entry.IsDirectory = true;
+                }
+
+                // Add file to the list for FileManager
+                entries.Add(entry);
+            }
+
+            // for do-while continuation
+            request.ContinuationToken = response.NextContinuationToken;
+        }
+        while (response.IsTruncated);
+
+        return entries;
+    }
+
+    private async Task<string> S3RenameDirectoryAsync(string target, FileManagerEntry entry)
+    {
+        string newPath = "";
+
+        // Get a list of the current folder's objects
+        var originalContentsResponse = await s3Client.ListObjectsV2Async(new ListObjectsV2Request
+        {
+            BucketName = BucketName,
+            Prefix = entry.Path
+        });
+
+        // With the new folder created, copy all the files out of the original directory into the new directory
+        originalContentsResponse.S3Objects.ForEach(async (s3Object) =>
+        {
+            newPath = s3Object.Key.Replace(entry.Path, entry.Name);
+
+            if (newPath.Last() != '/') newPath += "/";
+
+            await s3Client.CopyObjectAsync(new CopyObjectRequest
+            {
+                SourceBucket = BucketName,
+                SourceKey = s3Object.Key,
+                DestinationBucket = BucketName,
+                DestinationKey = newPath
+            });
+        });
+
+        // Cleanup phase - Delete original folder and all its contents
+        await s3Client.DeleteObjectAsync(BucketName, entry.Path);
+
+        return newPath;
+    }
+
+    private async Task<string> S3RenameFileAsync(string target, FileManagerEntry entry)
+    {
+        string directory = Path.GetDirectoryName(entry.Path);
+        string ext = entry.Extension ?? "";
+
+        //Concat extension
+        var newPath = NormalizePath(Path.Combine(directory, entry.Name + ext));
+
+        // Phase 1. Copy the object to a new key
+        var copyRequest = new CopyObjectRequest
+        {
+            SourceBucket = BucketName,
+            SourceKey = entry.Path,
+            DestinationBucket = BucketName,
+            DestinationKey = newPath
+        };
+
+        var copyResponse = await s3Client.CopyObjectAsync(copyRequest);
+
+        if (copyResponse.HttpStatusCode != HttpStatusCode.OK)
+        {
+            throw new Exception("Error copying object in Update method.");
+        }
+
+        //// Phase 2. Delete the original object
+        var deleteRequest = new DeleteObjectRequest
+        {
+            BucketName = BucketName,
+            Key = entry.Path
+        };
+
+        var deleteResponse = await s3Client.DeleteObjectAsync(deleteRequest);
+
+        //delete original file object after rename successfully with 204
+        if (deleteResponse.HttpStatusCode != HttpStatusCode.NoContent)
+        {
+            throw new AmazonS3Exception("Error deleting original object in Update method.");
+        }
+
+        return newPath;
+    }
+
+    private async Task<FileManagerEntry> S3CreateNewDirectoryAsync(string target, FileManagerEntry entry)
+    {
+        // Warning: If creating a new folder when the "New Folder" exists, it will overwrite The developer will need to rename for each initialization
+        var putRequest = new PutObjectRequest
+        {
+            BucketName = BucketName,
+            Key = target ?? "New Folder/",
+        };
+
+        var response = await s3Client.PutObjectAsync(putRequest);
+
+        if (response.HttpStatusCode != HttpStatusCode.OK)
+        {
+            throw new Exception("Error creating directory... HttpStatusCode != HttpStatusCode.OK");
+        }
+
+        return new FileManagerEntry
+        {
+            Name = entry.Name,
+            Path = target,
+            IsDirectory = true,
+            HasDirectories = false,
+            Created = DateTime.Now,
+            CreatedUtc = DateTime.SpecifyKind(DateTime.Now, DateTimeKind.Utc),
+            Modified = DateTime.Now,
+            ModifiedUtc = DateTime.SpecifyKind(DateTime.Now, DateTimeKind.Utc)
+        };
+    }
+
+    private async Task<FileManagerEntry> S3CopyItemAsync(string target, FileManagerEntry entry)
+    {
+        try
+        {
+            var request = new CopyObjectRequest
+            {
+                SourceBucket = BucketName,
+                SourceKey = Path.Join(entry.Path, entry.Name, entry.Extension),
+                DestinationBucket = BucketName,
+                DestinationKey = target,
+            };
+
+            var response = await s3Client.CopyObjectAsync(request);
+
+            if (response.HttpStatusCode != HttpStatusCode.OK)
+            {
+                throw new Exception("Error copying object... HttpStatusCode != HttpStatusCode.OK");
+            }
+
+            return new FileManagerEntry
+            {
+                Name = entry.Name,
+                Path = target,
+                Extension = entry.Extension,
+                IsDirectory = false,
+                HasDirectories = false,
+                Created = DateTime.Now,
+                CreatedUtc = DateTime.SpecifyKind(DateTime.Now, DateTimeKind.Utc),
+                Modified = DateTime.Now,
+                ModifiedUtc = DateTime.SpecifyKind(DateTime.Now, DateTimeKind.Utc),
+                Size = entry.Size
+            };
+        }
+        catch (AmazonS3Exception ex)
+        {
+            Console.WriteLine($"Error copying object: '{ex.Message}'");
+            throw;
+        }
+    }
+
+    // Work in progress (his is the same as a copy operation, but we're deleting the item after the copy)
+    private async Task<FileManagerEntry> S3MoveItemAsync(string target, FileManagerEntry entry)
+    {
+        var newEntry = await S3CopyItemAsync(target, entry);
+
+        await S3DeleteAsync(entry);
+
+        return newEntry;
+    }
+
+    private async Task S3DeleteAsync(FileManagerEntry entry)
+    {
+        var request = new ListObjectsV2Request
+        {
+            BucketName = BucketName,
+            Prefix = entry.Path
+        };
+
+        try
+        {
+            ListObjectsV2Response response;
+
+            do
+            {
+                response = await s3Client.ListObjectsV2Async(request);
+
+                response.S3Objects.ForEach(async (s3Object) =>
+                {
+                    try
+                    {
+                        await s3Client.DeleteObjectAsync(BucketName, s3Object.Key);
+                    }
+                    catch (Exception e)
+                    {
+                        throw new Exception($"Could not delete {s3Object.Key}. Exception {e.Message}");
+                    }
+                });
+
+                // for do-while continuation
+                request.ContinuationToken = response.NextContinuationToken;
+            }
+            while (response.IsTruncated);
+
+            
+        }
+        catch (AmazonS3Exception ex)
+        {
+            Console.WriteLine($"Error deleting objects: {ex.Message}");
+            throw new Exception("File Not Found");
+        }
+    }
+
+    #endregion
+
+    #region General Helpers
 
     private void UpdateSessionDir()
     {
