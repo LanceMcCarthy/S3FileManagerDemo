@@ -189,7 +189,9 @@ public class FileManagerController : Controller
     {
         string directory = Path.GetDirectoryName(entry.Path);
         string ext = entry.Extension ?? "";
-        string newPath = NormalizePath(Path.Combine(directory, entry.Name, ext));
+
+        //Concat extension
+        string newPath = NormalizePath(Path.Combine(directory, entry.Name + ext));
 
         try
         {
