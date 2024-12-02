@@ -280,9 +280,11 @@ public class FileManagerController : Controller
         var sessionDir = HttpContext.Session.GetObjectFromJson<ICollection<FileManagerEntry>>(SessionDirectory);
         var currentEntry = sessionDir.FirstOrDefault(x => x.Path == entry.Path);
 
-        currentEntry.Name = entry.Name;
-        currentEntry.Path = newPath;
-        currentEntry.Extension = entry.Extension ?? "";
+        if(currentEntry != null)
+        {
+            currentEntry.Name = entry.Name;
+            currentEntry.Path = newPath;
+        }
 
         HttpContext.Session.SetObjectAsJson(SessionDirectory, sessionDir);
 
