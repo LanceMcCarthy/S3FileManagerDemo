@@ -6,8 +6,10 @@ using CloudFileManager.Web.Helpers;
 using Kendo.Mvc.UI;
 using Microsoft.AspNetCore.Mvc;
 using System.Diagnostics;
+using System.IO;
 using System.Net;
 using Telerik.SvgIcons;
+using static System.Net.Mime.MediaTypeNames;
 
 namespace CloudFileManager.Web.Controllers;
 
@@ -187,43 +189,78 @@ public class FileManagerController : Controller
     // rename a folder path or a filename
     public virtual async Task<ActionResult> Update(string target, FileManagerEntry entry)
     {
-        string directory = Path.GetDirectoryName(entry.Path);
-        string ext = entry.Extension ?? "";
-
-        //Concat extension
-        string newPath = NormalizePath(Path.Combine(directory, entry.Name + ext));
+        string newPath = "";
 
         try
         {
-            // Phase 1. Copy the object to a new key
-            var copyRequest = new CopyObjectRequest
-            {
-                SourceBucket = BucketName,
-                SourceKey = entry.Path,
-                DestinationBucket = BucketName,
-                DestinationKey = newPath
-            };
 
-            var copyResponse = await s3Client.CopyObjectAsync(copyRequest);
-
-            if (copyResponse.HttpStatusCode != HttpStatusCode.OK)
+            if (entry.IsDirectory) // rename a folder
             {
-                throw new Exception("Error copying object in Update method.");
+                // Get a list of the current folders's objects
+                var originalContentsResponse = await s3Client.ListObjectsV2Async(new ListObjectsV2Request
+                {
+                    BucketName = BucketName,
+                    Prefix = entry.Path // <-- ORIGINAL_FOLDER_NAME
+                });
+
+                // With the new folder created, copy all the files out of the original directory into the new directory
+                originalContentsResponse.S3Objects.ForEach(async (s3Object) =>
+                {
+                    newPath = s3Object.Key.Replace(entry.Path, entry.Name);
+
+                    if (newPath.Last() != '/') newPath += "/";
+
+                    await s3Client.CopyObjectAsync(new CopyObjectRequest
+                    {
+                        SourceBucket = BucketName,
+                        SourceKey = s3Object.Key,
+                        DestinationBucket = BucketName,
+                        DestinationKey = newPath
+                    });
+                });
+
+                // Cleanup phase - Delete original folder and all its contents
+                await s3Client.DeleteObjectAsync(BucketName, entry.Path);
             }
-
-            //// Phase 2. Delete the original object
-            var deleteRequest = new DeleteObjectRequest
+            else
             {
-                BucketName = BucketName,
-                Key = entry.Path
-            };
+                string directory = Path.GetDirectoryName(entry.Path);
+                string ext = entry.Extension ?? "";
 
-            var deleteResponse = await s3Client.DeleteObjectAsync(deleteRequest);
+                //Concat extension
+                newPath = NormalizePath(Path.Combine(directory, entry.Name + ext));
 
-            //delete original file object after rename successfully with 204
-            if (deleteResponse.HttpStatusCode != HttpStatusCode.NoContent)
-            {
-                throw new Exception("Error deleting original object in Update method.");
+                // Phase 1. Copy the object to a new key
+                var copyRequest = new CopyObjectRequest
+                {
+                    SourceBucket = BucketName,
+                    SourceKey = entry.Path,
+                    DestinationBucket = BucketName,
+                    DestinationKey = newPath
+                };
+
+                var copyResponse = await s3Client.CopyObjectAsync(copyRequest);
+
+                if (copyResponse.HttpStatusCode != HttpStatusCode.OK)
+                {
+                    throw new Exception("Error copying object in Update method.");
+                }
+
+                //// Phase 2. Delete the original object
+                var deleteRequest = new DeleteObjectRequest
+                {
+                    BucketName = BucketName,
+                    Key = entry.Path
+                };
+
+                var deleteResponse = await s3Client.DeleteObjectAsync(deleteRequest);
+
+                //delete original file object after rename successfully with 204
+                if (deleteResponse.HttpStatusCode != HttpStatusCode.NoContent)
+                {
+                    throw new Exception("Error deleting original object in Update method.");
+                }
+
             }
         }
         catch (AmazonS3Exception e)
