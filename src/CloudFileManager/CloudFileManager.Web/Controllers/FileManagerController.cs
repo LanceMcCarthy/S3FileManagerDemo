@@ -57,17 +57,17 @@ public class FileManagerController : Controller
     // rename a folder path or a filename
     public virtual async Task<ActionResult> Update(string target, FileManagerEntry entry)
     {
-        var newPath = "";
+        FileManagerEntry updatedEntry = null;
 
         try
         {
             if (entry.IsDirectory) // rename a folder
             {
-                newPath = await S3RenameDirectoryAsync(target, entry);
+                updatedEntry = await S3RenameDirectoryAsync(target, entry);
             }
             else
             {
-                newPath = await S3RenameFileAsync(target, entry);
+                updatedEntry = await S3RenameFileAsync(target, entry);
             }
         }
         catch (AmazonS3Exception e)
@@ -79,18 +79,7 @@ public class FileManagerController : Controller
             Console.WriteLine("Unknown encountered on server. Message:'{0}' when renaming an object", e.Message);
         }
 
-
-        // Phase 3. Renaming FileManager data source
-        var sessionDir = HttpContext.Session.GetObjectFromJson<ICollection<FileManagerEntry>>(SessionDirectory);
-        var currentEntry = sessionDir.FirstOrDefault(x => x.Path == entry.Path);
-
-        currentEntry.Name = entry.Name;
-        currentEntry.Path = newPath;
-        currentEntry.Extension = entry.Extension ?? "";
-
-        HttpContext.Session.SetObjectAsJson(SessionDirectory, sessionDir);
-
-        return Json(currentEntry);
+        return Json(updatedEntry);
     }
 
     // Deletes item at the desired path
@@ -247,7 +236,7 @@ public class FileManagerController : Controller
         return entries;
     }
 
-    private async Task<string> S3RenameDirectoryAsync(string target, FileManagerEntry entry)
+    private async Task<FileManagerEntry> S3RenameDirectoryAsync(string target, FileManagerEntry entry)
     {
         string newPath = "";
 
@@ -258,12 +247,22 @@ public class FileManagerController : Controller
             Prefix = entry.Path
         });
 
-        // With the new folder created, copy all the files out of the original directory into the new directory
+        // Iterate over the items and copy them into the new destination
         originalContentsResponse.S3Objects.ForEach(async (s3Object) =>
         {
-            newPath = s3Object.Key.Replace(entry.Path, entry.Name);
+            // Example values:
+            // s3Object.Key = "OriginalName/MyFile.txt"  <-- the full relative path to the file
+            // entry.Path = "OriginalName/"              <-- Current name of the folder)
+            // entry.Name = "NewName"                    <-- New name of the folder (without trailing slash because it's not a Path)
 
-            if (newPath.Last() != '/') newPath += "/";
+            // if the user accidentally deleted the trailing slash
+            var comparer = entry.Name;
+            if (entry.IsDirectory && entry.Name.Last() != '/')
+            {
+                comparer = entry.Name + "/";
+            }
+
+            newPath = s3Object.Key.Replace(entry.Path, comparer);
 
             await s3Client.CopyObjectAsync(new CopyObjectRequest
             {
@@ -277,10 +276,20 @@ public class FileManagerController : Controller
         // Cleanup phase - Delete original folder and all its contents
         await s3Client.DeleteObjectAsync(BucketName, entry.Path);
 
-        return newPath;
+        // Phase 3. Renaming FileManager data source
+        var sessionDir = HttpContext.Session.GetObjectFromJson<ICollection<FileManagerEntry>>(SessionDirectory);
+        var currentEntry = sessionDir.FirstOrDefault(x => x.Path == entry.Path);
+
+        currentEntry.Name = entry.Name;
+        currentEntry.Path = newPath;
+        currentEntry.Extension = entry.Extension ?? "";
+
+        HttpContext.Session.SetObjectAsJson(SessionDirectory, sessionDir);
+
+        return currentEntry;
     }
 
-    private async Task<string> S3RenameFileAsync(string target, FileManagerEntry entry)
+    private async Task<FileManagerEntry> S3RenameFileAsync(string target, FileManagerEntry entry)
     {
         string directory = Path.GetDirectoryName(entry.Path);
         string ext = entry.Extension ?? "";
@@ -319,7 +328,17 @@ public class FileManagerController : Controller
             throw new AmazonS3Exception("Error deleting original object in Update method.");
         }
 
-        return newPath;
+        // Phase 3. Renaming FileManager data source
+        var sessionDir = HttpContext.Session.GetObjectFromJson<ICollection<FileManagerEntry>>(SessionDirectory);
+        var currentEntry = sessionDir.FirstOrDefault(x => x.Path == entry.Path);
+
+        currentEntry.Name = entry.Name;
+        currentEntry.Path = newPath;
+        currentEntry.Extension = entry.Extension ?? "";
+
+        HttpContext.Session.SetObjectAsJson(SessionDirectory, sessionDir);
+
+        return currentEntry;
     }
 
     private async Task<FileManagerEntry> S3CreateNewDirectoryAsync(string target, FileManagerEntry entry)
