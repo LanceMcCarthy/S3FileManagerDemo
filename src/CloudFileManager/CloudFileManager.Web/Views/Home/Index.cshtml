@@ -21,6 +21,7 @@
             .Type(HttpVerbs.Post)
             .Action("Destroy", "FileManager")
         );
+        ds.Events(e => e.RequestEnd("onRequestEnd"));
     })
     .UploadUrl("Upload", "FileManager")
     .Toolbar(tb => tb.Items(items =>
@@ -48,6 +49,15 @@
         filemanager.executeCommand({ command: "TogglePaneCommand", options: { type: "preview" } });
         $("#details-toggle").getKendoSwitch().toggle();
     })
+
+    function onRequestEnd(e){
+
+        if (e.type === "create" && e.response) {
+            //Refresh to correctly add folders
+            e.sender.read();
+        }
+    }
+
 </script>
 
 
