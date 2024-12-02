@@ -211,7 +211,7 @@ public class FileManagerController : Controller
                 throw new Exception("Error copying object in Update method.");
             }
 
-            // Phase 2. Delete the original object
+            //// Phase 2. Delete the original object
             var deleteRequest = new DeleteObjectRequest
             {
                 BucketName = BucketName,
@@ -220,7 +220,8 @@ public class FileManagerController : Controller
 
             var deleteResponse = await s3Client.DeleteObjectAsync(deleteRequest);
 
-            if (deleteResponse.HttpStatusCode != HttpStatusCode.OK)
+            //delete original file object after rename successfully with 204
+            if (deleteResponse.HttpStatusCode != HttpStatusCode.NoContent)
             {
                 throw new Exception("Error deleting original object in Update method.");
             }
