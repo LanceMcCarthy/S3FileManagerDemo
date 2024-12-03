@@ -51,9 +51,11 @@
     })
 
     function onRequestEnd(e){
-        if (e.type === "create" && e.response) {
-            //Refresh to correctly add folders
-            e.sender.read();
+
+        //Refresh to render items correctly
+        if (e.type !== "read" && e.response) {
+    
+           e.sender.read();
         }
     }
 
