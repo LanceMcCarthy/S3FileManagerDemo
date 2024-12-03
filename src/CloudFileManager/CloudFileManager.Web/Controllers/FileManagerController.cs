@@ -368,14 +368,21 @@ public class FileManagerController : Controller
 
     private async Task<FileManagerEntry> S3CopyItemAsync(string target, FileManagerEntry entry)
     {
+
         try
         {
+            string directory = Path.GetDirectoryName(entry.Path);
+            string ext = entry.Extension ?? "";
+
+            //Concat extension
+            var newPath = NormalizePath(Path.Combine(target, entry.Name + ext));
+
             var request = new CopyObjectRequest
             {
                 SourceBucket = BucketName,
-                SourceKey = Path.Join(entry.Path, entry.Name, entry.Extension),
+                SourceKey = entry.Path, //key
                 DestinationBucket = BucketName,
-                DestinationKey = target,
+                DestinationKey = newPath,  //where it is being saved
             };
 
             var response = await s3Client.CopyObjectAsync(request);
@@ -385,10 +392,11 @@ public class FileManagerController : Controller
                 throw new Exception("Error copying object... HttpStatusCode != HttpStatusCode.OK");
             }
 
+            //pass item which is copied
             return new FileManagerEntry
             {
                 Name = entry.Name,
-                Path = target,
+                Path = newPath,  
                 Extension = entry.Extension,
                 IsDirectory = false,
                 HasDirectories = false,
