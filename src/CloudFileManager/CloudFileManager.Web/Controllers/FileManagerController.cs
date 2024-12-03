@@ -339,11 +339,18 @@ public class FileManagerController : Controller
 
     private async Task<FileManagerEntry> S3CreateNewDirectoryAsync(string target, FileManagerEntry entry)
     {
+        // TODO This is a workaround to keep the same pattern of using trailing slashed in FileManager to have the same appearance as S3
+
+        // This is not required, but needs ot be handled carefully.
+        if (entry.IsDirectory && entry.Name.Last() != '/') entry.Name += "/";
+
+        var newPath = Path.Combine(target ?? "", entry.Name);
+
         // Warning: If creating a new folder when the "New Folder" exists, it will overwrite The developer will need to rename for each initialization
         var putRequest = new PutObjectRequest
         {
             BucketName = BucketName,
-            Key = target ?? "New Folder/",
+            Key = newPath,
         };
 
         var response = await s3Client.PutObjectAsync(putRequest);
@@ -356,7 +363,7 @@ public class FileManagerController : Controller
         return new FileManagerEntry
         {
             Name = entry.Name,
-            Path = target,
+            Path = newPath,
             IsDirectory = true,
             HasDirectories = false,
             Created = DateTime.Now,
