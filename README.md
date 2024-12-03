@@ -15,11 +15,13 @@ You must have a credentials file present when using the S3 SDK. For your conveni
     2. Create a new folder named `.aws`
     3. Create a new file named `credentials` (no extension)
     4. Open the file and enter the following content
-      ```xml
-      [default]
-      aws_access_key_id = your_access_key_id
-      aws_secret_access_key = your_secret_access_key
-      ```
+
+    ```xml
+    [default]
+    aws_access_key_id = your_access_key_id
+    aws_secret_access_key = your_secret_access_key
+    ```
+    
     5. Update the values using the CSV file you downloaded in phase 1, save and close the file
 
 ### Build and Deploy the Project
