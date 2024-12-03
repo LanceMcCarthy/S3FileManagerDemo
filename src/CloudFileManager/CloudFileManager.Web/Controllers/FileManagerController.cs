@@ -7,6 +7,7 @@ using Kendo.Mvc.UI;
 using Microsoft.AspNetCore.Mvc;
 using System.Diagnostics;
 using System.Net;
+using Telerik.SvgIcons;
 
 namespace CloudFileManager.Web.Controllers;
 
@@ -250,18 +251,14 @@ public class FileManagerController : Controller
         // Iterate over the items and copy them into the new destination
         originalContentsResponse.S3Objects.ForEach(async (s3Object) =>
         {
-            // Example values:
-            // s3Object.Key = "OriginalName/MyFile.txt"  <-- the full relative path to the file
-            // entry.Path = "OriginalName/"              <-- Current name of the folder)
-            // entry.Name = "NewName"                    <-- New name of the folder (without trailing slash because it's not a Path)
-
-            // if the user accidentally deleted the trailing slash
+            // copy of the Name so we do not modify the original fileManagerEntry object
             var comparer = entry.Name;
-            if (entry.IsDirectory && entry.Name.Last() != '/')
-            {
-                comparer = entry.Name + "/";
-            }
 
+            // IMPORTANT:
+            // The trailing slash is required for directories in S3
+            if (entry.IsDirectory && entry.Name.Last() != '/') comparer = entry.Name + "/";
+
+            // Simpler approach to create the new path by replacing the old name with the new name in the full key
             newPath = s3Object.Key.Replace(entry.Path, comparer);
 
             await s3Client.CopyObjectAsync(new CopyObjectRequest
@@ -274,21 +271,18 @@ public class FileManagerController : Controller
         });
 
         // Cleanup phase - Delete original folder and all its contents
-        await s3Client.DeleteObjectAsync(BucketName, entry.Path);
+        //await s3Client.DeleteObjectAsync(BucketName, entry.Path);
+        await S3DeleteAsync(entry);
 
         // Phase 3. Renaming FileManager data source
-        var sessionDir = HttpContext.Session.GetObjectFromJson<ICollection<FileManagerEntry>>(SessionDirectory);
-        var currentEntry = sessionDir.FirstOrDefault(x => x.Path == entry.Path);
+        // We have finished updating the S3 bucket, now we need to update the FileManagerEntry object with the new folder name and return it.
+        entry.Path = entry.Path.Replace(entry.Path, entry.Name);
 
-        if(currentEntry != null)
-        {
-            currentEntry.Name = entry.Name;
-            currentEntry.Path = newPath;
-        }
-
-        HttpContext.Session.SetObjectAsJson(SessionDirectory, sessionDir);
-
-        return currentEntry;
+        // TODO This is a workaround to keep the same pattern of using trailing slashed in FileManager to have the same appearance as S3
+        // This is not required, but needs ot be handled carefully.
+        if (entry.IsDirectory && entry.Name.Last() != '/') entry.Path += "/";
+        
+        return entry;
     }
 
     private async Task<FileManagerEntry> S3RenameFileAsync(string target, FileManagerEntry entry)
@@ -413,14 +407,14 @@ public class FileManagerController : Controller
     }
 
     // Work in progress (his is the same as a copy operation, but we're deleting the item after the copy)
-    private async Task<FileManagerEntry> S3MoveItemAsync(string target, FileManagerEntry entry)
-    {
-        var newEntry = await S3CopyItemAsync(target, entry);
+    //private async Task<FileManagerEntry> S3MoveItemAsync(string target, FileManagerEntry entry)
+    //{
+    //    var newEntry = await S3CopyItemAsync(target, entry);
 
-        await S3DeleteAsync(entry);
+    //    await S3DeleteAsync(entry);
 
-        return newEntry;
-    }
+    //    return newEntry;
+    //}
 
     private async Task S3DeleteAsync(FileManagerEntry entry)
     {
