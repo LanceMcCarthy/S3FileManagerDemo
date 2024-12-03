@@ -339,11 +339,18 @@ public class FileManagerController : Controller
 
     private async Task<FileManagerEntry> S3CreateNewDirectoryAsync(string target, FileManagerEntry entry)
     {
+        // TODO This is a workaround to keep the same pattern of using trailing slashed in FileManager to have the same appearance as S3
+
+        // This is not required, but needs ot be handled carefully.
+        if (entry.IsDirectory && entry.Name.Last() != '/') entry.Name += "/";
+
+        var newPath = Path.Combine(target ?? "", entry.Name);
+
         // Warning: If creating a new folder when the "New Folder" exists, it will overwrite The developer will need to rename for each initialization
         var putRequest = new PutObjectRequest
         {
             BucketName = BucketName,
-            Key = target ?? "New Folder/",
+            Key = newPath,
         };
 
         var response = await s3Client.PutObjectAsync(putRequest);
@@ -356,7 +363,7 @@ public class FileManagerController : Controller
         return new FileManagerEntry
         {
             Name = entry.Name,
-            Path = target,
+            Path = newPath,
             IsDirectory = true,
             HasDirectories = false,
             Created = DateTime.Now,
@@ -368,44 +375,89 @@ public class FileManagerController : Controller
 
     private async Task<FileManagerEntry> S3CopyItemAsync(string target, FileManagerEntry entry)
     {
+        string newPath = "";
+        string directory = Path.GetDirectoryName(entry.Path);
+        string ext = entry.Extension ?? "";
+
+        //Concat extension
+        newPath = NormalizePath(Path.Combine(target, entry.Name + ext));
 
         try
         {
-            string directory = Path.GetDirectoryName(entry.Path);
-            string ext = entry.Extension ?? "";
-
-            //Concat extension
-            var newPath = NormalizePath(Path.Combine(target, entry.Name + ext));
-
-            var request = new CopyObjectRequest
+            if (entry.IsDirectory)
             {
-                SourceBucket = BucketName,
-                SourceKey = entry.Path, //key
-                DestinationBucket = BucketName,
-                DestinationKey = newPath,  //where it is being saved
-            };
+                // Get a list of the current folder's objects
+                var originalContentsResponse = await s3Client.ListObjectsV2Async(new ListObjectsV2Request
+                {
+                    BucketName = BucketName,
+                    Prefix = entry.Path
+                });
 
-            var response = await s3Client.CopyObjectAsync(request);
+                // Iterate over the items and copy them into the new destination
+                originalContentsResponse.S3Objects.ForEach(async (s3Object) =>
+                {
+                    newPath = NormalizePath(Path.Combine(target, s3Object.Key));
 
-            if (response.HttpStatusCode != HttpStatusCode.OK)
+                    await s3Client.CopyObjectAsync(new CopyObjectRequest
+                    {
+                        SourceBucket = BucketName,
+                        SourceKey = s3Object.Key,
+                        DestinationBucket = BucketName,
+                        DestinationKey = newPath  
+                    });
+
+                });
+
+                //pass item which is copied
+                return new FileManagerEntry
+                {
+                    Name = entry.Name,
+                    Path = newPath,
+                    Extension = entry.Extension,
+                    IsDirectory = false,
+                    HasDirectories = false,
+                    Created = DateTime.Now,
+                    CreatedUtc = DateTime.SpecifyKind(DateTime.Now, DateTimeKind.Utc),
+                    Modified = DateTime.Now,
+                    ModifiedUtc = DateTime.SpecifyKind(DateTime.Now, DateTimeKind.Utc),
+                    Size = entry.Size
+                };
+
+            }
+            else
             {
-                throw new Exception("Error copying object... HttpStatusCode != HttpStatusCode.OK");
+
+                var request = new CopyObjectRequest
+                {
+                    SourceBucket = BucketName,
+                    SourceKey = entry.Path, //key
+                    DestinationBucket = BucketName,
+                    DestinationKey = newPath,  //where it is being saved
+                };
+
+                var response = await s3Client.CopyObjectAsync(request);
+
+                if (response.HttpStatusCode != HttpStatusCode.OK)
+                {
+                    throw new Exception("Error copying object... HttpStatusCode != HttpStatusCode.OK");
+                }
+
+                //pass item which is copied
+                return new FileManagerEntry
+                {
+                    Name = entry.Name,
+                    Path = newPath,
+                    Extension = entry.Extension,
+                    IsDirectory = false,
+                    HasDirectories = false,
+                    Created = DateTime.Now,
+                    CreatedUtc = DateTime.SpecifyKind(DateTime.Now, DateTimeKind.Utc),
+                    Modified = DateTime.Now,
+                    ModifiedUtc = DateTime.SpecifyKind(DateTime.Now, DateTimeKind.Utc),
+                    Size = entry.Size
+                };
             }
 
-            //pass item which is copied
-            return new FileManagerEntry
-            {
-                Name = entry.Name,
-                Path = newPath,  
-                Extension = entry.Extension,
-                IsDirectory = false,
-                HasDirectories = false,
-                Created = DateTime.Now,
-                CreatedUtc = DateTime.SpecifyKind(DateTime.Now, DateTimeKind.Utc),
-                Modified = DateTime.Now,
-                ModifiedUtc = DateTime.SpecifyKind(DateTime.Now, DateTimeKind.Utc),
-                Size = entry.Size
-            };
         }
         catch (AmazonS3Exception ex)
         {
