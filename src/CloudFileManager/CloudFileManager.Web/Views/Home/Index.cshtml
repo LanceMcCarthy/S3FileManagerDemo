@@ -54,8 +54,9 @@
 
         //Refresh to render items correctly
         if (e.type !== "read" && e.response) {
-    
-           e.sender.read();
+            setTimeout(function(){
+             e.sender.read();
+            },200); //Add time to ensure changes made
         }
     }
 
