@@ -30,3 +30,7 @@ You must have a credentials file present when using the S3 SDK. For your conveni
  2. You should see the following appearance (will vary according to your bucket's contents).
 
 ![image](https://github.com/user-attachments/assets/c8e647d9-283b-490d-950f-9c6fc0a1b2e1)
+
+### Support
+
+This project does not have technical support.  Developer assumes any risk involved.
