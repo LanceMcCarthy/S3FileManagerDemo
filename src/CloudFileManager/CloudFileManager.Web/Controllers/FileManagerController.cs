@@ -158,9 +158,9 @@ public class FileManagerController : Controller
         // ***** VERY IMPORTANT ***** //
         // To use this demo, you need a legacy credentials file located at '~/.aws/credentials' with the following content: https://docs.aws.amazon.com/sdk-for-net/v3/developer-guide/creds-file.html#creds-file-default
         // In a real production app, do NOT do this, instead follow the instructions here https://docs.aws.amazon.com/sdk-for-net/v3/developer-guide/creds-idc.html
-        
+
         // Put these values in your User Secrets (or production runtime secret environment variables)
-        
+
 
         throw new Exception("Could not authorize Amazon S3 client");
     }
@@ -185,12 +185,22 @@ public class FileManagerController : Controller
             // List folders
             foreach (var commonPrefix in response.CommonPrefixes)
             {
-                Debug.WriteLine("Folder: " + commonPrefix);
+                var lastFolderName = commonPrefix;
+
+                if (commonPrefix.Contains('/'))
+                {
+                    var folders = commonPrefix.Split('/');
+
+                    if (folders.Count() is var count)
+                    {
+                        lastFolderName = count >= 2 ? folders[folders.Length - 2] : folders[folders.Length - 1];
+                    }
+                }
 
                 // Add folder to list for the FileManager
                 entries.Add(new FileManagerEntry
                 {
-                    Name = commonPrefix,
+                    Name = lastFolderName,
                     Path = commonPrefix,
                     IsDirectory = true,
                     HasDirectories = await CheckForSubdirectories(commonPrefix)
@@ -282,7 +292,7 @@ public class FileManagerController : Controller
         // TODO This is a workaround to keep the same pattern of using trailing slashed in FileManager to have the same appearance as S3
         // This is not required, but needs ot be handled carefully.
         if (entry.IsDirectory && entry.Name.Last() != '/') entry.Path += "/";
-        
+
         return entry;
     }
 
@@ -404,7 +414,7 @@ public class FileManagerController : Controller
                         SourceBucket = BucketName,
                         SourceKey = s3Object.Key,
                         DestinationBucket = BucketName,
-                        DestinationKey = newPath  
+                        DestinationKey = newPath
                     });
 
                 });
@@ -510,7 +520,7 @@ public class FileManagerController : Controller
             }
             while (response.IsTruncated);
 
-            
+
         }
         catch (AmazonS3Exception ex)
         {
