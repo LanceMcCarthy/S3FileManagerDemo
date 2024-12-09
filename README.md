@@ -6,23 +6,16 @@ A demo app on how to connect Telerik UI for ASP.NET Core FileManager control to 
 
 You must have a credentials file present when using the S3 SDK. For your convenience, here are the steps:
 
-- Phase 1. Create user credentials
+- Phase 1. Create user credentials (if you already have AWS credentials, skip to phase 2)
     1. Sign in to the AWS Management Console and open the IAM console at [https://console.aws.amazon.com/iam/](https://console.aws.amazon.com/iam/).
-    2. Create a new user with permissions limited to the services and actions that you want your code to have access to. For more information about creating a new user, see [Creating IAM users (Console)](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_users_create.html#id_users_create_console), and follow the instructions **through step 8**.
-    3. Choose Download .csv to save a local copy of your AWS credentials.
-- Phase 2. Create a local AWS SDK credentials file
-    1. Open File Explorer and navigate to `%appdata%`
-    2. Create a new folder named `.aws`
-    3. Create a new file named `credentials` (no extension)
-    4. Open the file and enter the following content
-
-    ```xml
-    [default]
-    aws_access_key_id = your_access_key_id
-    aws_secret_access_key = your_secret_access_key
-    ```
-    
-    5. Update the values using the CSV file you downloaded in phase 1, save and close the file
+    1. Create a new user with permissions limited to the services and actions that you want your code to have access to. For more information about creating a new user, see [Creating IAM users (Console)](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_users_create.html#id_users_create_console), and follow the instructions **through step 8**.
+    1. Choose Download .csv to save a local copy of your AWS credentials.
+- Phase 2. Set dotnet user-secrets 
+    1. Open a terminal (powershell, bash, etc) and navigate to the `src/CloudFileManager/CloudFileManager.Web/` directory
+    1. Run the following commands
+        - `dotnet user-secrets set "AWS_ACCESS_KEY_ID" "value-from-cvs-file"`
+        - `dotnet user-secrets set "AWS_SECRET_ACCESS_KEY" "value-from-cvs-file"`
+    1. Done. Those secrets are used by **FileManagerController.cs Line 21** to authenticate the **AmazonS3Client**.
 
 ### Build and Deploy the Project
 
@@ -31,6 +24,14 @@ You must have a credentials file present when using the S3 SDK. For your conveni
 
 ![image](https://github.com/user-attachments/assets/c8e647d9-283b-490d-950f-9c6fc0a1b2e1)
 
-### Support
+### Disclaimer and Further Support
 
-This project does not have technical support.  Developer assumes any risk involved.
+This is a conceptual project and carries no guarantee. There may be some functionality that needs to be further refined (nested folder renaming, etc). This is the responsibility of the implementer to adjust to the cloud API, as well as what is returned to the FileManager. For example, using the FileManagerEntry obejct with the expected Path value (contains path delimiter) and the Name value (only name, no path delimiter).
+
+For technical assistance, choose the relevant option
+
+Telerik or Kendo components
+ASP.NET Core - [Live chat with the .NET Discord](http://aka.ms/dotnet-discord) (or other resources [here](https://dotnet.microsoft.com/en-us/platform/community)).
+AWS S3 - [resources](https://docs.aws.amazon.com/sdk-for-net/)
+
+If you like a complete solution developed for you, this can be arranged by the Professional Services team, whom may be [contacted here](https://www.telerik.com/services) or through your sales representative.
