@@ -48,10 +48,13 @@
 
         filemanager.executeCommand({ command: "TogglePaneCommand", options: { type: "preview" } });
         $("#details-toggle").getKendoSwitch().toggle();
-    })
+
+        filemanager.breadcrumb?.bind('change', function(e){
+            filemanager.navigate(`${e.value.substring(1)}/`);
+        })
+    });
 
     function onRequestEnd(e){
-
         //Refresh to render items correctly
         if (e.type !== "read" && e.response) {
             setTimeout(function(){
@@ -59,7 +62,6 @@
             },200); //Add time to ensure changes made
         }
     }
-
 </script>
 
 
