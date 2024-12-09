@@ -153,18 +153,6 @@ public class FileManagerController : Controller
 
     #region S3 Methods
 
-    private AmazonS3Client AuthorizeAmazonS3Client()
-    {
-        // ***** VERY IMPORTANT ***** //
-        // To use this demo, you need a legacy credentials file located at '~/.aws/credentials' with the following content: https://docs.aws.amazon.com/sdk-for-net/v3/developer-guide/creds-file.html#creds-file-default
-        // In a real production app, do NOT do this, instead follow the instructions here https://docs.aws.amazon.com/sdk-for-net/v3/developer-guide/creds-idc.html
-
-        // Put these values in your User Secrets (or production runtime secret environment variables)
-
-
-        throw new Exception("Could not authorize Amazon S3 client");
-    }
-
     private async Task<List<FileManagerEntry>> S3ListContentsAsync(string directory)
     {
         var entries = new List<FileManagerEntry>();
@@ -191,9 +179,9 @@ public class FileManagerController : Controller
                 {
                     var folders = commonPrefix.Split('/');
 
-                    if (folders.Count() is var count)
+                    if (folders.Length is var count)
                     {
-                        lastFolderName = count >= 2 ? folders[folders.Length - 2] : folders[folders.Length - 1];
+                        lastFolderName = count >= 2 ? folders[^2] : folders[^1];
                     }
                 }
 
@@ -476,16 +464,6 @@ public class FileManagerController : Controller
             throw;
         }
     }
-
-    // Work in progress (his is the same as a copy operation, but we're deleting the item after the copy)
-    //private async Task<FileManagerEntry> S3MoveItemAsync(string target, FileManagerEntry entry)
-    //{
-    //    var newEntry = await S3CopyItemAsync(target, entry);
-
-    //    await S3DeleteAsync(entry);
-
-    //    return newEntry;
-    //}
 
     private async Task S3DeleteAsync(FileManagerEntry entry)
     {
