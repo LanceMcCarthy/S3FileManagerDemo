@@ -22,9 +22,10 @@ You must have a credentials file present when using the S3 SDK. For your conveni
  1. Now, you can do a Rebuild of the project and deploy it
  2. You should see the following appearance (will vary according to your bucket's contents).
 
-![image](https://github.com/user-attachments/assets/c8e647d9-283b-490d-950f-9c6fc0a1b2e1)
+![image](https://github.com/user-attachments/assets/151d841d-079e-4bd2-9419-0241861278da)
 
-### Disclaimer and Further Support
+
+### Additional Support
 
 This is a conceptual project and carries no guarantee. There may be some functionality that needs to be further refined (nested folder renaming, etc). This is the responsibility of the implementer to adjust to the cloud API, as well as what is returned to the FileManager. For example, using the FileManagerEntry obejct with the expected Path value (contains path delimiter) and the Name value (only name, no path delimiter).
 
