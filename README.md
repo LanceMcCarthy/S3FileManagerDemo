@@ -33,8 +33,13 @@ This is a conceptual demo project and carries no guarantees. There may be some f
 
 For technical assistance, choose the relevant option:
 
-- Telerik or Kendo components [](https://www.telerik.com/support/aspnet-core)
-- ASP.NET Core: [Live chat with the .NET Discord](http://aka.ms/dotnet-discord) (or other resources [here](https://dotnet.microsoft.com/en-us/platform/community)).
-- AWS S3: [resources](https://docs.aws.amazon.com/sdk-for-net/)
+- Telerik or Kendo API questions
+    - [Support Resources (live demos, docs, forums etc)](https://www.telerik.com/support/aspnet-core)
+    - [Open a Technical Support Ticket](https://www.telerik.com/account/support-center/contact-us/)
+- ASP.NET Core questions:
+    - [Live chat with the .NET Discord](http://aka.ms/dotnet-discord)
+    - find a lot more resources [here](https://dotnet.microsoft.com/en-us/platform/community)
+- AWS S3 questions:
+    - [Resources](https://docs.aws.amazon.com/sdk-for-net/)
 
 If you like a complete solution developed for you, this can be arranged by the Professional Services team, whom may be [contacted here](https://www.telerik.com/services) or through your sales representative.
